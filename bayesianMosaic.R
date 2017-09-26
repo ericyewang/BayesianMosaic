@@ -1,6 +1,7 @@
 # Bayesian Mosaic
 # Version 1.0
 
+suppressMessages(require(testthat))
 suppressMessages(require(parallel))
 ncores = detectCores() - 1
 
@@ -10,7 +11,7 @@ ilogit <- function(x){
   # args:
   #   x: input value
   # outputs:
-  #   inverse logit
+  #   inverse logit of x
   
   return( 1/(1+exp(-x)) )
 }
@@ -41,13 +42,13 @@ aggregateCount2d <- function(y){
   k = nrow(y)
   n = ncol(y)
   summaries = NULL
-  while(n>0){
-    tmp = y[,1]
-    idx = apply(y,2,FUN = function(x){
-      all(x==tmp)
+  while(n > 0){
+    tmp = y[, 1]
+    idx = apply(y, 2, FUN = function(x) {
+      all(x == tmp)
     })
-    summaries = cbind(summaries,c(tmp,sum(idx)))
-    y = y[,!idx,drop=FALSE]
+    summaries = cbind(summaries, c(tmp, sum(idx)))
+    y = y[, !idx, drop=FALSE]
     n = n - sum(idx)
   }
   
@@ -307,11 +308,12 @@ genKnots <- function(y, X = NULL, model) {
   return(knots)
 }
 
-genTiles <- function(y, X = NULL, model, idx_pairs, knots, parallel = FALSE) {
+genTiles <- function(y, X = NULL, knots, model, idx_pairs, knots, parallel = FALSE) {
   # generate tiles that later will be collaged into a mosaic
   # args:
   #   y: a data frame (or object coercible by as.data.frame to a data frame) containing the data for all dimensions
   #   X: a data frame (or object coercible by as.data.frame to a data frame) containing extra features
+  #   knots: TODO
   #   model: a string indicating the model to apply Bayesian Mosaic on
   #   indices: a vector of indices, tiles of all pairs of these indices will be generated
   #   knots: TODO
@@ -319,6 +321,7 @@ genTiles <- function(y, X = NULL, model, idx_pairs, knots, parallel = FALSE) {
   # output:
   # TODO
   
+  tiles = list()
   num_pairs = nrow(idx_pairs)
   # validation
   if (ncol(idx_pairs) != 2) {
@@ -328,9 +331,10 @@ genTiles <- function(y, X = NULL, model, idx_pairs, knots, parallel = FALSE) {
   
   # generate tile for all pairs of given indices
   for (p in 1:num_pairs) {
-    callModel(y[, j], X, 'tile', model)
+    idx_pair = idx_pairs[p, ]
+    tiles[[p]] = callModel(y[, idx_pair], X, 'tile', model, knots[[idx_pair[1]]], knots[[idx_pair[2]]])
   }
   
   # return tiles
-  return(list()) # TODO
+  return(tiles)
 }
