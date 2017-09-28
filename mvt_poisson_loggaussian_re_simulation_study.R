@@ -1,6 +1,5 @@
 # Bayesian Mosaic Simulation Study
-# 2D Gaussian with Normal Inverse Wishart (NIW) Prior
-# Definition of NIW, see https://en.wikipedia.org/wiki/Normal-inverse-Wishart_distribution#Posterior_distribution_of_the_parameters
+# hierarchical Poisson log Gaussian
 
 rm(list=ls())
 
@@ -11,9 +10,190 @@ suppressMessages(require(LaplacesDemon))
 suppressMessages(require(Rmisc))
 suppressMessages(require(ggplot2))
 
+# helpers
+ilogit <- function(x){
+  # inverse logit function
+  return( 1/(1+exp(-x)) )
+}
+
+aggregateData <- function(y){
+  # aggregate data into list([value,count])
+  # since the count data only takes a small number of values
+  # args:
+  #   y: count observations
+  
+  pool = unique(y)
+  ret = matrix(0, 2, length(pool))
+  for (i in 1:length(pool)){
+    ret[, i] = c(pool[i], sum(y == pool[i]))
+  }
+  return(ret)
+}
+
+getLik <- function(y, mu, v){
+  # likelihood function value for a individual observation via numerical integration
+  # transform the variable so that the range is 0 to 1, have tried -Inf to Inf 
+  # and there is some bizzare numerical issue there.
+  # args:
+  #   y: observation
+  #   mu: mean
+  #   v: variance
+  
+  integrand <- function(x){
+    return( exp(y * x - lfactorial(y) - (x - mu)^2 / 2 / v - exp(x)) * (2 * pi * v)^-.5 )
+  }
+  integrate(integrand, lower = min(log(y + 0.1), mu) - 4 * sqrt(v), 
+            upper = max(log(y + 0.1), mu) + 4 * sqrt(v), stop.on.error=FALSE)$value
+}
+
+getGroupLik <- function(group_summary, mu, v, logarithm = TRUE){
+  # get (the logarithm of) of the likelihood of a group
+  # args:
+  #   group_summary: summary of the observations in the group
+  #   mu: mean
+  #   v: variance
+  #   logarithm: whether or not to return the log likelihood
+  
+  ret = 0
+  for (i in 1:ncol(group_summary)){
+    ret = ret + group_summary[2, i] * log(getLik(group_summary[1, i], mu, v))
+  }
+  if (logarithm == FALSE){
+    ret = exp(ret)
+  }
+  return(ret)
+}
+
+getGroupLiks <- function(group_summaries, group_mus, v, logarithm = TRUE){
+  # get (the logarithm of) of the likelihoods of all groups
+  # args:
+  #   group_summaries: a list of group summaries
+  #   group_mus: a vector of group means
+  #   v: variance
+  #   logarithm: whether or not to return the log likelihood
+  
+  ret = NULL
+  for (i in 1:length(group_mus)){
+    ret = c(ret, getGroupLik(group_summaries[[i]], group_mus[i], v, logarithm = TRUE))
+  }
+  if (logarithm == FALSE){
+    ret = exp(ret)
+  }
+  return(ret)
+}
+
+# sample from the knot posteriors
+sampleKnot <- function(y, group_idx, nb, ns, njump, lam, a, b, proposal_var, verbose = FALSE) {
+  # sample from the knot posterior
+  # Args:
+  #   y: observation
+  #   group_idx: group index of each observation
+  #   nb: number of burn-ins
+  #   ns: number of samples to collect
+  #   njump: thinning parameter
+  #   lam: parameter in NIW that controls the prior concentration of mu
+  #   a: shape parameter of inverse gamma
+  #   b: scale parameter of inverse gamma
+  #   proposal_var: initial variance of the proposal normal distribution
+  #   verbose: whether or not to print intermediate sampling info
+  
+  # summary statistics
+  K = max(group_idx)
+  group_summaries = list()
+  for( k in 1:K) {
+    group_summaries[[k]] = aggregateData(y[group_idx == k])
+  }
+  
+  # initialization
+  group_mus = rep(0, K)
+  s1 = 1
+  mu0 = 0
+  s2 = 1
+  prv_lliks = rep(-Inf, K)
+  ars = rep(0, K + 1)
+    
+  # storing the results
+  mgroup_mus = NULL
+  vs1 = NULL
+  vmu0 = NULL
+  vs2 = NULL
+  mar = NULL
+  
+  # preparation for adapting
+  proposal_vars_group_mus = rep(proposal_var, K)
+  window_memory_group_mus = matrix(NA, 100, K)
+  window_memory_group_mus[100,] = group_mus
+  proposal_vars_s1 = proposal_var
+  window_memory_s1 = c(rep(NA, 99), s1)
+  
+  # sampling
+  for (iter in 1:(nb + ns * njump)) {
+    # print intermediate sampling info
+    if (verbose && (iter %% floor((nb + ns * njump) / 10)) == 0) {
+      cat("iteration: ", iter, "\n")
+    }
+    
+    # update group_mus
+    new_group_mus = group_mus + sqrt(proposal_vars_group_mus) * rnorm(K)
+    new_lliks = getGroupLiks(group_summaries, new_group_mus, s1, logarithm = TRUE)
+    new_lposts = new_lliks + dnorm(new_group_mus, mu0, sqrt(s2), log = TRUE)
+    prv_lposts = prv_lliks + dnorm(group_mus, mu0, sqrt(s2), log = TRUE)
+    for (i in 1:K) {
+      ars[i] = min(exp(new_lposts[i] - prv_lposts[i]), 1) # symmetric proposal
+      if (runif(1) <= ars[i]) {
+        group_mus[i] = new_group_mus[i]
+        prv_lliks[i] = new_lliks[i]
+      }
+    }
+    
+    # update s1
+    new_s1 = s1 + sqrt(proposal_vars_s1) * rnorm(1)
+    if (new_s1 > 0) {
+      new_lliks = getGroupLiks(group_summaries, group_mus, new_s1, logarithm = TRUE)
+      new_lpost = sum(new_lliks) + dgamma(new_s1, 2, .5, log = TRUE)
+      prv_lpost = sum(prv_lliks) + dgamma(s1, 2, .5, log = TRUE)
+      ars[K + 1] = min(exp(new_lpost - prv_lpost), 1)
+      if (runif(1) <= ars[K + 1]) {
+        s1 = new_s1
+        prv_lliks = new_lliks
+      }
+    } else {
+      ars[K + 1] = 0
+    }
+    
+    # update mu0 and s2
+    s2 = 1 / rgamma(1, shape = a + K / 2, rate = b + ((K - 1) * var(group_mus) + lam * K * mean(group_mus)^2 / (lam + K)) / 2)
+    mu0 = sum(group_mus) / (lam + K) + sqrt(s2 / (lam + K)) * rnorm(1)
+    
+    # store samples
+    if (iter > nb & (iter - nb) %% njump == 0) {
+      mgroup_mus = cbind(mgroup_mus, group_mus)
+      vs1 = c(vs1, s1)
+      vmu0 = c(vmu0, mu0)
+      vs2 = c(vs2, s2)
+      mar = cbind(mar, ars)
+    }
+    
+    # adapting proposal sd
+    window_memory_group_mus[1:99,] = window_memory_group_mus[2:100,]
+    window_memory_group_mus[100,] = group_mus
+    window_memory_s1[1:99] = window_memory_s1[2:100]
+    window_memory_s1[100] = s1
+    historical_var_s1 = sd(window_memory_s1, na.rm = TRUE)
+    historical_var_group_mus = apply(window_memory_group_mus, 2, function(x) {
+      sd(x, na.rm = TRUE)
+    })
+    proposal_vars_group_mus[historical_var_group_mus > 0] = historical_var_group_mus[historical_var_group_mus > 0]
+    if (historical_var_s1 > 0) {
+      proposal_var_s1 = historical_var_s1
+    }
+  }
+  
+  return(list(mgroup_mus = mgroup_mus, vs1 = vs1, vmu0 = vmu0, vs2 = vs2, mar = mar))
+}
+
 # sample from the tile posteriors
-sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb, 
-                       ns, njump, lam, nu, Psi, proposal_var, verbose = FALSE){
+sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb, ns, njump, lam, nu, Psi, proposal_var){
   # sample from the tile posterior
   # Args:
   #   ys: dimension s of y
@@ -27,7 +207,6 @@ sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb,
   #   nu: d.f. of inverse-wishart
   #   Psi: scale matrix of inverse-wishart
   #   proposal_var: initial variance of the proposal normal distribution
-  #   verbose: whether or not to print intermediate sampling info
   
   # initialization
   Y = cbind(ys, yt)
@@ -48,11 +227,6 @@ sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb,
   vars = NULL
   
   for (iter in 1:(nb + ns * njump)) {
-    # print intermediate sampling info
-    if (verbose && (iter %% floor((nb + ns * njump) / 10)) == 0) {
-      cat("iteration: ", iter, "\n")
-    }
-    
     mu_tmp = c(samples_knot_s[2, iter], samples_knot_t[2, iter])
     diag_Sigma_tmp = c(samples_knot_s[1, iter], samples_knot_t[1, iter])
     
@@ -74,7 +248,7 @@ sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb,
     } else {
       ar = 0
     }
-
+    
     
     if (iter > nb & (iter - nb) %% njump == 0) {
       rhos = c(rhos, rho)
@@ -233,7 +407,7 @@ df2vis = data.frame(
   mean_diff = c(y_rho_mean_diff, y_var1_mean_diff, y_var2_mean_diff),
   sd_diff = c(y_rho_sd_diff, y_var1_sd_diff, y_var2_sd_diff),
   estimand = as.factor(c(rep("rho", counter), rep("var1", counter), rep("var2", counter)))
-  )
+)
 
 # extract the sd of the differences
 mean_diff_summary = summarySE(df2vis, measurevar="mean_diff", groupvars=c("n", "estimand"))
