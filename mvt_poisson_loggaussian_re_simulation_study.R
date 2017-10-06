@@ -6,30 +6,32 @@ rm(list=ls())
 # dependencies
 suppressMessages(require(MCMCpack))
 suppressMessages(require(mvtnorm))
+suppressMessages(require(pracma))
 suppressMessages(require(LaplacesDemon))
 suppressMessages(require(Rmisc))
 suppressMessages(require(ggplot2))
 
-# helpers
-ilogit <- function(x){
-  # inverse logit function
-  return( 1/(1+exp(-x)) )
-}
-
+# global helper functions
 aggregateData <- function(y){
-  # aggregate data into list([value,count])
+  # aggregate data
   # since the count data only takes a small number of values
   # args:
   #   y: count observations
   
-  pool = unique(y)
-  ret = matrix(0, 2, length(pool))
-  for (i in 1:length(pool)){
-    ret[, i] = c(pool[i], sum(y == pool[i]))
+  y = as.matrix(y)
+  
+  pool = unique(y, MARGIN = 1)
+  ret = matrix(0, ncol(pool) + 1, nrow(pool))
+  for (i in 1:nrow(pool)){
+    ret[, i] = c(pool[i,], sum(apply(y, 1, function(x) {
+      all(x == pool[i,])
+    })))
   }
+  
   return(ret)
 }
 
+# helper functions for sampling tile posteriors
 getLik <- function(y, mu, v){
   # likelihood function value for a individual observation via numerical integration
   # transform the variable so that the range is 0 to 1, have tried -Inf to Inf 
@@ -74,7 +76,7 @@ getGroupLiks <- function(group_summaries, group_mus, v, logarithm = TRUE){
   
   ret = NULL
   for (i in 1:length(group_mus)){
-    ret = c(ret, getGroupLik(group_summaries[[i]], group_mus[i], v, logarithm = TRUE))
+    ret = c(ret, getGroupLik(group_summaries[[i]], group_mus[i], v))
   }
   if (logarithm == FALSE){
     ret = exp(ret)
@@ -83,11 +85,12 @@ getGroupLiks <- function(group_summaries, group_mus, v, logarithm = TRUE){
 }
 
 # sample from the knot posteriors
-sampleKnot <- function(y, group_idx, nb, ns, njump, lam, a, b, proposal_var, verbose = FALSE) {
+sampleKnot <- function(y, shoot, nb, ns, njump, lam, a, b, 
+                       proposal_var, verbose = FALSE) {
   # sample from the knot posterior
   # Args:
   #   y: observation
-  #   group_idx: group index of each observation
+  #   shoot: group index of each observation
   #   nb: number of burn-ins
   #   ns: number of samples to collect
   #   njump: thinning parameter
@@ -98,10 +101,10 @@ sampleKnot <- function(y, group_idx, nb, ns, njump, lam, a, b, proposal_var, ver
   #   verbose: whether or not to print intermediate sampling info
   
   # summary statistics
-  K = max(group_idx)
+  K = max(shoot)
   group_summaries = list()
   for( k in 1:K) {
-    group_summaries[[k]] = aggregateData(y[group_idx == k])
+    group_summaries[[k]] = aggregateData(y[shoot == k])
   }
   
   # initialization
@@ -123,7 +126,7 @@ sampleKnot <- function(y, group_idx, nb, ns, njump, lam, a, b, proposal_var, ver
   proposal_vars_group_mus = rep(proposal_var, K)
   window_memory_group_mus = matrix(NA, 100, K)
   window_memory_group_mus[100,] = group_mus
-  proposal_vars_s1 = proposal_var
+  proposal_var_s1 = proposal_var
   window_memory_s1 = c(rep(NA, 99), s1)
   
   # sampling
@@ -147,11 +150,11 @@ sampleKnot <- function(y, group_idx, nb, ns, njump, lam, a, b, proposal_var, ver
     }
     
     # update s1
-    new_s1 = s1 + sqrt(proposal_vars_s1) * rnorm(1)
+    new_s1 = s1 + sqrt(proposal_var_s1) * rnorm(1)
     if (new_s1 > 0) {
       new_lliks = getGroupLiks(group_summaries, group_mus, new_s1, logarithm = TRUE)
-      new_lpost = sum(new_lliks) + dgamma(new_s1, 2, .5, log = TRUE)
-      prv_lpost = sum(prv_lliks) + dgamma(s1, 2, .5, log = TRUE)
+      new_lpost = sum(new_lliks) + dgamma(1 / new_s1, shape = a, rate = b, log = TRUE)
+      prv_lpost = sum(prv_lliks) + dgamma(1 / s1, shape = a, rate = b, log = TRUE)
       ars[K + 1] = min(exp(new_lpost - prv_lpost), 1)
       if (runif(1) <= ars[K + 1]) {
         s1 = new_s1
@@ -175,98 +178,253 @@ sampleKnot <- function(y, group_idx, nb, ns, njump, lam, a, b, proposal_var, ver
     }
     
     # adapting proposal sd
-    window_memory_group_mus[1:99,] = window_memory_group_mus[2:100,]
-    window_memory_group_mus[100,] = group_mus
-    window_memory_s1[1:99] = window_memory_s1[2:100]
-    window_memory_s1[100] = s1
-    historical_var_s1 = sd(window_memory_s1, na.rm = TRUE)
-    historical_var_group_mus = apply(window_memory_group_mus, 2, function(x) {
-      sd(x, na.rm = TRUE)
-    })
-    proposal_vars_group_mus[historical_var_group_mus > 0] = historical_var_group_mus[historical_var_group_mus > 0]
-    if (historical_var_s1 > 0) {
-      proposal_var_s1 = historical_var_s1
+    if (iter <= nb) {
+      # only adapt the proposal variance during burn-in to ensure ergodicity
+      window_memory_group_mus[1:99,] = window_memory_group_mus[2:100,]
+      window_memory_group_mus[100,] = group_mus
+      window_memory_s1[1:99] = window_memory_s1[2:100]
+      window_memory_s1[100] = s1
+      historical_var_s1 = var(window_memory_s1, na.rm = TRUE)
+      historical_var_group_mus = apply(window_memory_group_mus, 2, function(x) {
+        var(x, na.rm = TRUE)
+      })
+      proposal_vars_group_mus[historical_var_group_mus > 0] = historical_var_group_mus[historical_var_group_mus > 0]
+      if (historical_var_s1 > 0) {
+        proposal_var_s1 = historical_var_s1
+      }
     }
   }
   
   return(list(mgroup_mus = mgroup_mus, vs1 = vs1, vmu0 = vmu0, vs2 = vs2, mar = mar))
 }
 
-# sample from the tile posteriors
-sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb, ns, njump, lam, nu, Psi, proposal_var){
+# helper functions for sampling tile posteriors
+getLik2D <- function(y, mu, Sigma, Sinv){
+  # likelihood function value for a individual observation via numerical integration
+  # args:
+  # args:
+  #   y: observation
+  #   mu: mean
+  #   Sigma: covariance matrix
+  #   Sinv: precision matrix
+  
+  v = diag(Sigma)
+  integrand <- function(x1, x2) {
+    return(exp(y[1] * x1 + y[2] * x2 - lfactorial(y[1]) - lfactorial(y[2]) -
+                 ((x1 - mu[1])^2 * Sinv[1, 1] + 2 * (x1 - mu[1]) * (x2 - mu[2]) * Sinv[1, 2] + (x2 - mu[2])^2 * Sinv[2, 2]) / 2 -
+                 exp(x1) - exp(x2)) * (2 * pi)^(-1) * det(Sigma)^-.5)
+  }
+  return(quad2d(integrand, min(log(y[1] + 0.1), mu[1])-4 * sqrt(v[1]), 
+                max(log(y[1] + 0.1), mu[1]) + 4 * sqrt(v[1]), min(log(y[2] + 0.1), mu[2]) - 4 * sqrt(v[2]), 
+                max(log(y[2] + 0.1) , mu[2]) + 4 * sqrt(v[2]), 64))
+}
+
+getGroupLik2D <- function(group_summary, mu, v, rho, logarithm = TRUE){
+  # get (the logarithm of) of the likelihood of a group
+  # args:
+  #   group_summary: summary of the observations in the group
+  #   mu: mean vector
+  #   v: marginal variance vector
+  #   rho: correlation parameter
+  #   logarithm: whether or not to return the log likelihood
+  
+  Sigma = diag(sqrt(v))%*%matrix(c(1,rho,rho,1),2,2)%*%diag(sqrt(v))
+  Sinv = solve(Sigma)
+  ret = 0
+  for (i in 1:ncol(group_summary)){
+    ret = ret + group_summary[3, i] * log(getLik2D(group_summary[1:2, i], mu, Sigma, Sinv))
+  }
+  if (logarithm == FALSE){
+    ret = exp(ret)
+  }
+  return(ret)
+}
+
+getGroupLiks2D <- function(group_summaries, group_mus, v, rho, logarithm = TRUE){
+  # get (the logarithm of) of the likelihoods of all groups
+  # args:
+  #   group_summaries: a list of group summaries
+  #   group_mus: a matrix of group mean vectors
+  #   v: variance
+  #   rho: correlation parameter
+  #   logarithm: whether or not to return the log likelihood
+  
+  ret = NULL
+  for (i in 1:ncol(group_mus)){
+    ret = c(ret, getGroupLik2D(group_summaries[[i]], group_mus[, i], v, rho))
+  }
+  if (logarithm == FALSE){
+    ret = exp(ret)
+  }
+  return(ret)
+}
+
+# sample from the tile posteriors given knots fixed at their posterior means
+sampleTile <- function(ys, yt, shoot, samples_knot_s, samples_knot_t, nb, ns, njump,
+                       proposal_var, verbose = FALSE){
   # sample from the tile posterior
   # Args:
   #   ys: dimension s of y
   #   yt: dimension t of y
+  #   shoot: group index of each observation
   #   samples_knot_s: posterior samples from the knot posterior of dimension s
   #   samples_knot_t: posterior samples from the knot posterior of dimension t
   #   nb: number of burn-ins
   #   ns: number of samples to collect
   #   njump: thinning parameter
-  #   lam: parameter in NIW that controls the prior concentration of mu
   #   nu: d.f. of inverse-wishart
   #   Psi: scale matrix of inverse-wishart
   #   proposal_var: initial variance of the proposal normal distribution
+  #   verbose: whether or not to print intermediate sampling info
   
-  # initialization
-  Y = cbind(ys, yt)
-  rho = 0
-  prv_lpost = -Inf
+  small_var = 0.001
+  
+  # extract knot info
+  vs1 = c(mean(samples_knot_s$vs1), mean(samples_knot_t$vs1))
+  vs2 = c(mean(samples_knot_s$vs2), mean(samples_knot_t$vs2))
+  vmu0 = c(mean(samples_knot_s$vmu0), mean(samples_knot_t$vmu0))
+  proposal_vars_group_mus = array(0, c(2, 2, K))
+  group_mus = matrix(0, 2, K)
+  for (k in 1:K) {
+    tmp_mus = cbind(samples_knot_s$mgroup_mus[k,], samples_knot_t$mgroup_mus[k,])
+    # use the intermediate samples from knot posteriors to calculate the proposal covariance matrix
+    proposal_vars_group_mus[,, k] = cov(tmp_mus)
+    # and the mean as the initial values of these augmented variables
+    group_mus[, k] = apply(tmp_mus, 2, mean)
+  }
   
   # summary statistics
-  YY = t(Y) %*% Y
-  YS = apply(Y, 2, sum)
+  K = max(shoot)
+  group_summaries = list()
+  for( k in 1:K) {
+    group_summaries[[k]] = aggregateData(y[shoot == k, ])
+  }
+  
+  # initialization
+  rho1 = 0
+  rho2 = 0
+  prv_lliks = rep(-Inf, K)
+  ars = rep(0, K + 2)
+  new_group_mus = matrix(0, 2, K)
+  
+  # storing the results
+  mgroup_mus = NULL
+  vrho1 = NULL
+  vrho2 = NULL
+  mar = NULL
   
   # preparation for adapting
-  window_memory = c(rep(NA, 99), rho)
+  window_memory_group_mus = array(NA, c(100, 2, K))
+  window_memory_group_mus[100,,] = group_mus
+  proposal_var_rho1 = proposal_var
+  window_memory_rho1 = c(rep(NA, 99), rho1)
+  proposal_var_rho2 = proposal_var
+  window_memory_rho2 = c(rep(NA, 99), rho2)
   
-  # outputs
-  ars = NULL
-  rhos = NULL
-  mus = NULL
-  vars = NULL
-  
+  # sampling
   for (iter in 1:(nb + ns * njump)) {
-    mu_tmp = c(samples_knot_s[2, iter], samples_knot_t[2, iter])
-    diag_Sigma_tmp = c(samples_knot_s[1, iter], samples_knot_t[1, iter])
-    
-    new_rho = rho + sqrt(proposal_var) * rnorm(1)
-    if (abs(new_rho) < 1){ # reject if proposal is out of (-1,1)
-      new_Sigma_tmp = diag(sqrt(diag_Sigma_tmp)) %*% matrix(c(1, new_rho, new_rho, 1), 2, 2) %*% diag(sqrt(diag_Sigma_tmp))
-      new_Sigma_tmp_inv = solve(new_Sigma_tmp)
-      new_llik = -sum(diag(YY %*% new_Sigma_tmp_inv)) / 2 + YS %*% new_Sigma_tmp_inv %*% mu_tmp - n * t(mu_tmp) %*% new_Sigma_tmp_inv %*% mu_tmp / 2 - 
-        n * as.numeric(determinant(2 * pi * new_Sigma_tmp)$modulus) / 2
-      new_lprior = dmvnorm(mu_tmp, mean = rep(0, 2), sigma = new_Sigma_tmp / lam, log = TRUE) + log(diwish(new_Sigma_tmp, nu, Psi))
-      new_lpost = new_llik + new_lprior
-      # new_lpost = new_llik
-      
-      ar = min(exp(new_lpost - prv_lpost), 1) # symmetric proposal
-      if (runif(1) <= ar) {
-        rho = new_rho
-        prv_lpost = new_lpost
-      }
-    } else {
-      ar = 0
+    # print intermediate sampling info
+    if (verbose && (iter %% floor((nb + ns * njump) / 50)) == 0) {
+      cat("iteration: ", iter, "\n")
     }
     
+    # covariance matrices of different levels
+    Sigma1 = diag(sqrt(vs1)) %*% matrix(c(1, rho1, rho1, 1), 2, 2) %*% diag(sqrt(vs1))
+    Sigma2 = diag(sqrt(vs2)) %*% matrix(c(1, rho2, rho2, 1), 2, 2) %*% diag(sqrt(vs2))
     
+    # update rho1
+    new_rho1 = rho1 + sqrt(proposal_var_rho1) * rnorm(1)
+    new_Sigma1 = diag(sqrt(vs1)) %*% matrix(c(1, new_rho1, new_rho1, 1), 2, 2) %*% diag(sqrt(vs1))
+    if (abs(new_rho1) < 1) {
+      new_lliks = getGroupLiks2D(group_summaries, group_mus, vs1, new_rho1)
+      new_lpost = sum(new_lliks) + dbeta((new_rho1 + 1) / 2, 2, 2, log = TRUE)
+      prv_lpost = sum(prv_lliks) + dbeta((rho1 + 1) / 2, 2, 2, log = TRUE)
+      ars[K + 1] = min(exp(new_lpost - prv_lpost), 1)
+      if (runif(1) <= ars[K + 1]) {
+        rho1 = new_rho1
+        prv_lliks = new_lliks
+      }
+    } else {
+      ars[K + 1] = 0
+    }
+    
+    # update group_mus
+    for (k in 1:K) {
+      new_group_mus[, k] = rmvnorm(1, group_mus[, k], proposal_vars_group_mus[,, k])
+    }
+    new_lliks = getGroupLiks2D(group_summaries, new_group_mus, vs1, rho1)
+    new_lposts = new_lliks + apply(new_group_mus, 2, function(x) {
+      dmvnorm(x, vmu0, Sigma2, log = TRUE)
+    })
+    prv_lposts = prv_lliks + apply(group_mus, 2, function(x) {
+      dmvnorm(x, vmu0, Sigma2, log = TRUE)
+    })
+    for (k in 1:K) {
+      ars[k] = min(exp(new_lposts[k] - prv_lposts[k]), 1) # symmetric proposal
+      if (runif(1) <= ars[k]) {
+        group_mus[, k] = new_group_mus[, k]
+        prv_lliks[k] = new_lliks[k]
+      }
+    }
+    
+    # update rho2
+    new_rho2 = rho2 + sqrt(proposal_var_rho2) * rnorm(1)
+    new_Sigma2 = diag(sqrt(vs2)) %*% matrix(c(1, new_rho2, new_rho2, 1), 2, 2) %*% diag(sqrt(vs2))
+    if (abs(new_rho2) < 1) {
+      new_lliks_lvl2 = sum(dmvnorm(t(group_mus), vmu0, new_Sigma2, log = TRUE))
+      new_lpost_lvl2 = new_lliks_lvl2 + dbeta((new_rho2 + 1) / 2, 2, 2, log = TRUE)
+      prv_lpost_lvl2 = sum(dmvnorm(t(group_mus), vmu0, Sigma2, log = TRUE)) + dbeta((rho2 + 1) / 2, 2, 2, log = TRUE)
+      ars[K + 2] = min(exp(new_lpost_lvl2 - prv_lpost_lvl2), 1)
+      if (runif(1) <= ars[K + 2]) {
+        rho2 = new_rho2
+      }
+    } else {
+      ars[K + 2] = 0
+    }
+    
+    # store samples
     if (iter > nb & (iter - nb) %% njump == 0) {
-      rhos = c(rhos, rho)
-      mus = cbind(mus, mu_tmp)
-      vars = cbind(vars, diag_Sigma_tmp)
-      ars = c(ars, ar)
+      mgroup_mus = cbind(mgroup_mus, c(group_mus))
+      vrho1 = c(vrho1, rho1)
+      vrho2 = c(vrho2, rho2)
+      mar = cbind(mar, ars)
     }
     
     # adapting proposal sd
-    window_memory[1:99] = window_memory[2:100]
-    window_memory[100] = rho
-    historical_var = sd(window_memory, na.rm = TRUE)
-    if (historical_var > 0) {
-      proposal_var = historical_var
+    if (iter <= nb) {
+      # only adapt the proposal variance during burn-in to ensure ergodicity
+      window_memory_group_mus[1:99,,] = window_memory_group_mus[2:100,,]
+      window_memory_group_mus[100,,] = group_mus
+      window_memory_rho1[1:99] = window_memory_rho1[2:100]
+      window_memory_rho1[100] = rho1
+      window_memory_rho2[1:99] = window_memory_rho2[2:100]
+      window_memory_rho2[100] = rho2
+      historical_var_rho1 = var(window_memory_rho1, na.rm = TRUE)
+      historical_var_rho2 = var(window_memory_rho2, na.rm = TRUE)
+      n_not_na = sum(!is.na(window_memory_rho1))
+      smoothing_weight = n_not_na / (n_not_na + 1)
+      for (k in 1:K) {
+        tmp = na.omit(window_memory_group_mus[,, k])
+        cov_tmp = cov(tmp)
+        if (all(!is.na(cov_tmp)) && all(eigen(cov_tmp)$values > 0)) {
+          # if cov_tmp is well defined and is positive definite
+          proposal_vars_group_mus[,, k] = smoothing_weight * cov_tmp + (1 - smoothing_weight) * proposal_vars_group_mus[,, k]
+        }
+      }
+      if (historical_var_rho1 > 0) {
+        proposal_var_rho1 = smoothing_weight * historical_var_rho1 + (1 - smoothing_weight) * proposal_var_rho1
+        # to prevent proposal_var_rho1 to be too small
+        proposal_var_rho1 = proposal_var_rho1 + (proposal_var_rho1 < small_var) * (small_var - proposal_var_rho1)
+      }
+      if (historical_var_rho2 > 0) {
+        proposal_var_rho2 = smoothing_weight * historical_var_rho2 + (1 - smoothing_weight) * proposal_var_rho2
+        # to prevent proposal_var_rho2 to be too small
+        proposal_var_rho2 = proposal_var_rho2 + (proposal_var_rho2 < small_var) * (small_var - proposal_var_rho2)
+      }
     }
   }
   
-  return(list(rhos = rhos, mus = mus, vars = vars, ars = ars))
+  return(list(mgroup_mus = mgroup_mus, vrho1 = vrho1, vrho2 = vrho2, mar = mar))
 }
 
 # run one experiment
@@ -330,96 +488,3 @@ experimentOnce <- function(n, rho, lam, nu, Psi){
     Psi_f = Psi_f
   ))
 }
-
-# run experiments
-lam = 0.1
-nu = 4
-Psi = diag(1,2)
-experiment_results = list()
-counter = 0
-set.seed(2017)
-for (n in 100 * 2^(0:7)) {
-  for (rho in c(-0.9, -0.5, 0, 0.5, 0.9)) {
-    for (j in 1:50) {
-      counter = counter + 1
-      cat(counter, '\n')
-      
-      res = experimentOnce(n, rho, lam, nu, Psi)
-      
-      # draw samples from the true posteriors
-      ns = 1000
-      Sigma_samples_true = matrix(0, 3, ns)
-      mu_samples_true = matrix(0, 2, ns)
-      for (i in 1:ns) {
-        tmp = riwish(res$nu_f, res$Psi_f)
-        mu_samples_true[, i] = rmvnorm(1, res$mu_f, tmp / res$lam_f)
-        Sigma_samples_true[1:2, i] = diag(tmp)
-        Sigma_samples_true[3, i] = tmp[1, 2] / sqrt(tmp[1, 1] * tmp[2, 2])
-      }
-      
-      mu_mean_diffs = apply(res$mus, 1, mean) - apply(mu_samples_true, 1, mean)
-      var_mean_diffs = c(apply(res$vars, 1, mean), mean(res$rhos)) - apply(Sigma_samples_true, 1, mean)
-      mu_sd_diffs = apply(res$mus, 1, sd) - apply(mu_samples_true, 1, sd)
-      var_sd_diffs = c(apply(res$vars, 1, sd), sd(res$rhos)) - apply(Sigma_samples_true, 1, sd)
-      
-      suppressWarnings(ks_stat_rho <- ks.test(res$rhos, Sigma_samples_true[3,])$statistic)
-      
-      experiment_results[[counter]] = list(
-        n = n,
-        rho = rho,
-        mu_mean_diffs = abs(mu_mean_diffs),
-        var_mean_diffs = abs(var_mean_diffs),
-        mu_sd_diffs = abs(mu_sd_diffs),
-        var_sd_diffs = abs(var_sd_diffs),
-        ks_stat_rho = ks_stat_rho
-      )
-    }
-  }
-}
-
-# compair actual marginal posterior density of rho and the Bayesian mosaic posterior density of rho
-df_rho = data.frame(rhos = c(res$rhos, Sigma_samples_true[3,]), 
-                    group = as.factor(c(rep("Bayesian Mosaic", length(res$rhos)), rep("True Posterior", ncol(Sigma_samples_true)))))
-ggplot(df_rho) + geom_density(aes(rhos, fill = group), alpha = 0.3) + theme_bw() + xlab('rho')
-
-# reshape the results
-x_n = NULL
-x_rho = NULL
-y_rho_mean_diff = NULL
-y_rho_sd_diff = NULL
-y_var1_mean_diff = NULL
-y_var1_sd_diff = NULL
-y_var2_mean_diff = NULL
-y_var2_sd_diff = NULL
-for (i in 1:counter) {
-  x_n = c(x_n, experiment_results[[i]]$n)
-  x_rho = c(x_rho, experiment_results[[i]]$rho)
-  y_rho_mean_diff = c(y_rho_mean_diff, experiment_results[[i]]$var_mean_diffs[3])
-  y_rho_sd_diff = c(y_rho_sd_diff, experiment_results[[i]]$var_sd_diffs[3])
-  y_var1_mean_diff = c(y_var1_mean_diff, experiment_results[[i]]$var_mean_diffs[1])
-  y_var1_sd_diff = c(y_var1_sd_diff, experiment_results[[i]]$var_sd_diffs[1])
-  y_var2_mean_diff = c(y_var2_mean_diff, experiment_results[[i]]$var_mean_diffs[2])
-  y_var2_sd_diff = c(y_var2_sd_diff, experiment_results[[i]]$var_sd_diffs[2])
-}
-df2vis = data.frame(
-  n = rep(x_n, 3),
-  rho = as.factor(rep(x_rho, 3)),
-  mean_diff = c(y_rho_mean_diff, y_var1_mean_diff, y_var2_mean_diff),
-  sd_diff = c(y_rho_sd_diff, y_var1_sd_diff, y_var2_sd_diff),
-  estimand = as.factor(c(rep("rho", counter), rep("var1", counter), rep("var2", counter)))
-)
-
-# extract the sd of the differences
-mean_diff_summary = summarySE(df2vis, measurevar="mean_diff", groupvars=c("n", "estimand"))
-sd_diff_summary = summarySE(df2vis, measurevar="sd_diff", groupvars=c("n", "estimand"))
-
-# visualize the trend of differences versus the sample size
-pd <- position_dodge(0.2) # move them .05 to the left and right
-ggplot(mean_diff_summary, aes(x = log(n), y = mean_diff, color = estimand)) + 
-  geom_errorbar(aes(ymin = mean_diff - sd, ymax = mean_diff + sd), width = .1, position=pd) +
-  geom_line(position=pd) + geom_point(position=pd) + theme_bw() + xlab("log sample size") + ylab("difference in posterior mean")
-ggplot(sd_diff_summary, aes(x = log(n), y = sd_diff, color = estimand)) + 
-  geom_errorbar(aes(ymin = sd_diff - sd, ymax = sd_diff + sd), width = .1, position=pd) +
-  geom_line(position=pd) + geom_point(position=pd) + theme_bw() + xlab("log sample size") + ylab("difference in posterior sd")
-
-

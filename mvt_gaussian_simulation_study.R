@@ -10,10 +10,56 @@ suppressMessages(require(mvtnorm))
 suppressMessages(require(LaplacesDemon))
 suppressMessages(require(Rmisc))
 suppressMessages(require(ggplot2))
+suppressMessages(require(compiler))
+
+# helper
+sampleLaplaceApprox <- cmpfun(function(n, ys, yt, mu, vvars) {
+  # sample from the Laplace approximation
+  # args:
+  #   n: number of samles
+  #   ys: dimension s of y
+  #   yt: dimension t of y
+  #   mu: mean vector
+  #   vvars: vector of variances
+  
+  # simulation study
+  ys = (ys - mu[1]) / sqrt(vvars[1])
+  yt = (yt - mu[2]) / sqrt(vvars[2])
+  a = length(ys) / 2
+  b = sum(ys^2 + yt^2) / 2
+  c = -sum(ys * yt)
+  
+  llikfcn <- function(x) {
+    rho = 2 / (exp(-x) + 1) - 1
+    aux = 1 - rho^2
+    -a * log(aux) - b / aux - c * rho / aux
+  }
+  
+  llikGradient <- function(x) {
+    rho = 2 / (exp(-x) + 1) - 1
+    aux = 1 - rho^2
+    llik_gradient_rho = (2 * a * rho * aux - 2 * b * rho - c - c * rho^2) / aux^2
+    return(llik_gradient_rho * 2 * exp(x) / (1 + exp(x))^2)
+  }
+  
+  # maximize the log-likelihood
+  optim_res = optim(par = 0, fn = function(x){-llikfcn(x)}, gr = function(x){-llikGradient(x)}, 
+                    method = "BFGS", lower = -Inf, upper = Inf, hessian = TRUE)
+  
+  # laplace approximation
+  laplace_mean = optim_res$par
+  laplace_var = 1 / c(optim_res$hessian)
+  
+  # sample once
+  x_sample = laplace_mean + sqrt(laplace_var) * rnorm(n)
+  
+  return(2 / (exp(-x_sample) + 1) - 1)
+})
 
 # sample from the tile posteriors
 sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb, 
-                       ns, njump, lam, nu, Psi, proposal_var, verbose = FALSE){
+                       ns, njump, lam, nu, Psi, proposal_mean, proposal_sd, 
+                       verbose = FALSE){
   # sample from the tile posterior
   # Args:
   #   ys: dimension s of y
@@ -30,69 +76,32 @@ sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb,
   #   verbose: whether or not to print intermediate sampling info
   
   # initialization
-  Y = cbind(ys, yt)
   rho = 0
-  prv_lpost = -Inf
-  
-  # summary statistics
-  YY = t(Y) %*% Y
-  YS = apply(Y, 2, sum)
-  
-  # preparation for adapting
-  window_memory = c(rep(NA, 99), rho)
   
   # outputs
-  ars = NULL
   rhos = NULL
   mus = NULL
   vars = NULL
   
   for (iter in 1:(nb + ns * njump)) {
     # print intermediate sampling info
-    if (verbose && (iter %% floor((nb + ns * njump) / 10)) == 0) {
+    if (verbose && (iter %% floor((nb + ns * njump) / 100)) == 0) {
       cat("iteration: ", iter, "\n")
     }
     
     mu_tmp = c(samples_knot_s[2, iter], samples_knot_t[2, iter])
     diag_Sigma_tmp = c(samples_knot_s[1, iter], samples_knot_t[1, iter])
     
-    new_rho = rho + sqrt(proposal_var) * rnorm(1)
-    if (abs(new_rho) < 1){ # reject if proposal is out of (-1,1)
-      new_Sigma_tmp = diag(sqrt(diag_Sigma_tmp)) %*% matrix(c(1, new_rho, new_rho, 1), 2, 2) %*% diag(sqrt(diag_Sigma_tmp))
-      new_Sigma_tmp_inv = solve(new_Sigma_tmp)
-      new_llik = -sum(diag(YY %*% new_Sigma_tmp_inv)) / 2 + YS %*% new_Sigma_tmp_inv %*% mu_tmp - n * t(mu_tmp) %*% new_Sigma_tmp_inv %*% mu_tmp / 2 - 
-        n * as.numeric(determinant(2 * pi * new_Sigma_tmp)$modulus) / 2
-      new_lprior = dmvnorm(mu_tmp, mean = rep(0, 2), sigma = new_Sigma_tmp / lam, log = TRUE) + log(diwish(new_Sigma_tmp, nu, Psi))
-      new_lpost = new_llik + new_lprior
-      # new_lpost = new_llik
-      
-      ar = min(exp(new_lpost - prv_lpost), 1) # symmetric proposal
-      if (runif(1) <= ar) {
-        rho = new_rho
-        prv_lpost = new_lpost
-      }
-    } else {
-      ar = 0
-    }
-
+    rho = sampleLaplaceApprox(1, ys, yt, mu_tmp, diag_Sigma_tmp)
     
     if (iter > nb & (iter - nb) %% njump == 0) {
       rhos = c(rhos, rho)
       mus = cbind(mus, mu_tmp)
       vars = cbind(vars, diag_Sigma_tmp)
-      ars = c(ars, ar)
-    }
-    
-    # adapting proposal sd
-    window_memory[1:99] = window_memory[2:100]
-    window_memory[100] = rho
-    historical_var = sd(window_memory, na.rm = TRUE)
-    if (historical_var > 0) {
-      proposal_var = historical_var
     }
   }
   
-  return(list(rhos = rhos, mus = mus, vars = vars, ars = ars))
+  return(list(rhos = rhos, mus = mus, vars = vars))
 }
 
 # run one experiment
@@ -133,8 +142,8 @@ experimentOnce <- function(n, rho, lam, nu, Psi){
   }
   
   # prepare for sampling tiles
-  njump_tile = 20 # thinning parameter
-  nb_tile = 1000 # number of burn-ins
+  njump_tile = 1 # thinning parameter
+  nb_tile = 100 # number of burn-ins
   ns_tile = 1000 # number of posterior samples to collect
   knots_to_feed_tiles = array(0, c(2, nb_tile + njump_tile * ns_tile, p))
   for (s in 1:p) {
@@ -143,7 +152,7 @@ experimentOnce <- function(n, rho, lam, nu, Psi){
   
   # tile posteriors
   tile12 = sampleTile(y[,1], y[,2], knots_to_feed_tiles[,,1], knots_to_feed_tiles[,,2], 
-                      nb_tile, ns_tile, njump_tile, lam, nu, Psi, 0.1)
+                      nb_tile, ns_tile, njump_tile, lam, nu, Psi, 0.1, FALSE)
   
   return(list(
     rhos = tile12$rhos, 
@@ -159,93 +168,88 @@ experimentOnce <- function(n, rho, lam, nu, Psi){
 
 # run experiments
 lam = 0.1
-nu = 4
+nu = 6
 Psi = diag(1,2)
 experiment_results = list()
 counter = 0
 set.seed(2017)
-for (n in 100 * 2^(0:7)) {
-  for (rho in c(-0.9, -0.5, 0, 0.5, 0.9)) {
-    for (j in 1:50) {
-      counter = counter + 1
-      cat(counter, '\n')
-      
-      res = experimentOnce(n, rho, lam, nu, Psi)
-      
-      # draw samples from the true posteriors
-      ns = 1000
-      Sigma_samples_true = matrix(0, 3, ns)
-      mu_samples_true = matrix(0, 2, ns)
-      for (i in 1:ns) {
-        tmp = riwish(res$nu_f, res$Psi_f)
-        mu_samples_true[, i] = rmvnorm(1, res$mu_f, tmp / res$lam_f)
-        Sigma_samples_true[1:2, i] = diag(tmp)
-        Sigma_samples_true[3, i] = tmp[1, 2] / sqrt(tmp[1, 1] * tmp[2, 2])
-      }
-      
-      mu_mean_diffs = apply(res$mus, 1, mean) - apply(mu_samples_true, 1, mean)
-      var_mean_diffs = c(apply(res$vars, 1, mean), mean(res$rhos)) - apply(Sigma_samples_true, 1, mean)
-      mu_sd_diffs = apply(res$mus, 1, sd) - apply(mu_samples_true, 1, sd)
-      var_sd_diffs = c(apply(res$vars, 1, sd), sd(res$rhos)) - apply(Sigma_samples_true, 1, sd)
-      
-      suppressWarnings(ks_stat_rho <- ks.test(res$rhos, Sigma_samples_true[3,])$statistic)
-      
-      experiment_results[[counter]] = list(
-        n = n,
-        rho = rho,
-        mu_mean_diffs = abs(mu_mean_diffs),
-        var_mean_diffs = abs(var_mean_diffs),
-        mu_sd_diffs = abs(mu_sd_diffs),
-        var_sd_diffs = abs(var_sd_diffs),
-        ks_stat_rho = ks_stat_rho
-      )
+for (n in 100 * 2^(0:8)) {
+  for (j in 1:100) {
+    counter = counter + 1
+    cat(counter, '\n')
+    rho = runif(1, min = -1, max = 1)
+    res = experimentOnce(n, rho, lam, nu, Psi)
+    
+    # draw samples from the true posteriors
+    rho_samples_true = NULL
+    for (jj in 1:1000) {
+      tmp = riwish(res$nu_f, res$Psi_f)
+      rho_samples_true = c(rho_samples_true, tmp[1, 2]/ sqrt(tmp[1, 1] * tmp[2, 2]))
     }
+    
+    experiment_results[[counter]] = list(
+      n = n,
+      rho_mean_diff = mean(res$rhos) - mean(rho_samples_true),
+      rho_sd_diff = sd(res$rhos) - sd(rho_samples_true)
+    )
   }
 }
 
-# compair actual marginal posterior density of rho and the Bayesian mosaic posterior density of rho
-df_rho = data.frame(rhos = c(res$rhos, Sigma_samples_true[3,]), 
-                    group = as.factor(c(rep("Bayesian Mosaic", length(res$rhos)), rep("True Posterior", ncol(Sigma_samples_true)))))
-ggplot(df_rho) + geom_density(aes(rhos, fill = group), alpha = 0.3) + theme_bw() + xlab('rho')
-
 # reshape the results
 x_n = NULL
-x_rho = NULL
 y_rho_mean_diff = NULL
 y_rho_sd_diff = NULL
-y_var1_mean_diff = NULL
-y_var1_sd_diff = NULL
-y_var2_mean_diff = NULL
-y_var2_sd_diff = NULL
 for (i in 1:counter) {
   x_n = c(x_n, experiment_results[[i]]$n)
-  x_rho = c(x_rho, experiment_results[[i]]$rho)
-  y_rho_mean_diff = c(y_rho_mean_diff, experiment_results[[i]]$var_mean_diffs[3])
-  y_rho_sd_diff = c(y_rho_sd_diff, experiment_results[[i]]$var_sd_diffs[3])
-  y_var1_mean_diff = c(y_var1_mean_diff, experiment_results[[i]]$var_mean_diffs[1])
-  y_var1_sd_diff = c(y_var1_sd_diff, experiment_results[[i]]$var_sd_diffs[1])
-  y_var2_mean_diff = c(y_var2_mean_diff, experiment_results[[i]]$var_mean_diffs[2])
-  y_var2_sd_diff = c(y_var2_sd_diff, experiment_results[[i]]$var_sd_diffs[2])
+  y_rho_mean_diff = c(y_rho_mean_diff, experiment_results[[i]]$rho_mean_diff)
+  y_rho_sd_diff = c(y_rho_sd_diff, experiment_results[[i]]$rho_sd_diff)
 }
-df2vis = data.frame(
-  n = rep(x_n, 3),
-  rho = as.factor(rep(x_rho, 3)),
-  mean_diff = c(y_rho_mean_diff, y_var1_mean_diff, y_var2_mean_diff),
-  sd_diff = c(y_rho_sd_diff, y_var1_sd_diff, y_var2_sd_diff),
-  estimand = as.factor(c(rep("rho", counter), rep("var1", counter), rep("var2", counter)))
-  )
-
-# extract the sd of the differences
-mean_diff_summary = summarySE(df2vis, measurevar="mean_diff", groupvars=c("n", "estimand"))
-sd_diff_summary = summarySE(df2vis, measurevar="sd_diff", groupvars=c("n", "estimand"))
+df2vis = data.frame(sample_size = as.factor(round(log(x_n), 1)),
+                    y_rho_mean_diff = y_rho_mean_diff,
+                    y_rho_sd_diff = sqrt(x_n) * y_rho_sd_diff)
 
 # visualize the trend of differences versus the sample size
-pd <- position_dodge(0.2) # move them .05 to the left and right
-ggplot(mean_diff_summary, aes(x = log(n), y = mean_diff, color = estimand)) + 
-  geom_errorbar(aes(ymin = mean_diff - sd, ymax = mean_diff + sd), width = .1, position=pd) +
-  geom_line(position=pd) + geom_point(position=pd) + theme_bw() + xlab("log sample size") + ylab("difference in posterior mean")
-ggplot(sd_diff_summary, aes(x = log(n), y = sd_diff, color = estimand)) + 
-  geom_errorbar(aes(ymin = sd_diff - sd, ymax = sd_diff + sd), width = .1, position=pd) +
-  geom_line(position=pd) + geom_point(position=pd) + theme_bw() + xlab("log sample size") + ylab("difference in posterior sd")
+ggplot(df2vis, aes(x = sample_size, y = y_rho_mean_diff)) + geom_boxplot() + 
+  stat_summary(fun.y=mean, geom="line", aes(group=1))  + 
+  stat_summary(fun.y=mean, geom="point") + theme_bw() + xlab("log sample size") + ylab("difference in posterior mean")
+
+ggplot(df2vis, aes(x = sample_size, y = y_rho_sd_diff)) + geom_boxplot() + 
+  stat_summary(fun.y=mean, geom="line", aes(group=1))  + 
+  stat_summary(fun.y=mean, geom="point") + theme_bw() + xlab("log sample size") + ylab("standardized difference in posterior sd")
 
 
+# compare the posterior density from Bayesian mosaic to the truth
+lam = 0.1
+nu = 6
+Psi = diag(1,2)
+facets = list()
+set.seed(2018)
+facet_counter = 0
+for (n in c(100, 1000, 10000)) {
+  for (rho in c(0, 0.5, 0.9)) {
+    facet_counter = facet_counter + 1
+    
+    res = experimentOnce(n, rho, lam, nu, Psi)
+    
+    n_samples = length(res$rhos)
+    # draw samples from the true posteriors
+    rho_samples_true = NULL
+    for (jj in 1:n_samples) {
+      tmp = riwish(res$nu_f, res$Psi_f)
+      rho_samples_true = c(rho_samples_true, tmp[1, 2]/ sqrt(tmp[1, 1] * tmp[2, 2]))
+    }
+    
+    group_n = c(group_n, rep(n, n_samples))
+    group_rho = c(group_rho, rep(rho, n_samples))
+    
+    df_tmp = data.frame(rho_samples = c(res$rhos, rho_samples_true),
+                        method = c(rep("Bayesian Mosaic", n_samples), rep("True Posterior", n_samples)))
+    facets[[facet_counter]] = ggplot(df_tmp) + geom_density(aes(rho_samples, fill = method), alpha = 0.3) + 
+      theme_bw() + xlab(paste("n=", n, ", rho=", rho, sep = "")) + theme(legend.position="none") + ylab("")
+  }
+}
+
+suppressMessages(require(gridExtra))
+grid.arrange(facets[[1]], facets[[2]], facets[[3]],
+             facets[[4]], facets[[5]], facets[[6]],
+             facets[[7]], facets[[8]], facets[[9]], nrow = 3)
