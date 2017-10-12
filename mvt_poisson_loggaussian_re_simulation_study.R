@@ -1,5 +1,5 @@
-# Bayesian Mosaic Simulation Study
-# multivariate Poisson log Gaussian
+# Bayesian Mosaic Simulation Study 2
+# Bivariate log-normal mixture of Poisson
 
 rm(list=ls())
 
@@ -7,10 +7,9 @@ rm(list=ls())
 suppressMessages(require(MCMCpack))
 suppressMessages(require(mvtnorm))
 suppressMessages(require(pracma))
-suppressMessages(require(LaplacesDemon))
-suppressMessages(require(Rmisc))
 suppressMessages(require(ggplot2))
 suppressMessages(require(compiler))
+suppressMessages(require(ars))
 
 # global helper functions
 aggregateData <- function(y){
@@ -35,8 +34,6 @@ aggregateData <- function(y){
 # helper functions for sampling tile posteriors
 getLik <- function(y, mu, v){
   # likelihood function value for a individual observation via numerical integration
-  # transform the variable so that the range is 0 to 1, have tried -Inf to Inf 
-  # and there is some bizzare numerical issue there.
   # args:
   #   y: observation
   #   mu: mean
@@ -85,18 +82,15 @@ getGroupLiks <- function(group_summaries, group_mus, v, logarithm = TRUE){
   return(ret)
 }
 
-# sample from the knot posteriors
+# sample from the knot marginal
 sampleKnot <- function(y, nb, ns, njump, proposal_var, verbose = FALSE) {
-  # sample from the knot posterior
+  # sample from the knot marginal
   # Args:
   #   y: observation
   #   shoot: group index of each observation
   #   nb: number of burn-ins
   #   ns: number of samples to collect
   #   njump: thinning parameter
-  #   lam: parameter in NIW that controls the prior concentration of mu
-  #   a: shape parameter of inverse gamma
-  #   b: scale parameter of inverse gamma
   #   proposal_var: initial variance of the proposal normal distribution
   #   verbose: whether or not to print intermediate sampling info
   
@@ -221,28 +215,7 @@ getLik2DGradient <- function(y, mu, Sigma, Sinv){
                 max(log(y[2] + 0.1) , mu[2]) + 4 * sqrt(v[2]), 64))
 }
 
-getGroupLik2D <- function(group_summary, mu, v, rho, logarithm = TRUE){
-  # get (the logarithm of) of the likelihood of a group
-  # args:
-  #   group_summary: summary of the observations in the group
-  #   mu: mean vector
-  #   v: marginal variance vector
-  #   rho: correlation parameter
-  #   logarithm: whether or not to return the log likelihood
-  
-  Sigma = diag(sqrt(v))%*%matrix(c(1,rho,rho,1),2,2)%*%diag(sqrt(v))
-  Sinv = solve(Sigma)
-  ret = 0
-  for (i in 1:ncol(group_summary)){
-    ret = ret + group_summary[3, i] * log(getLik2D(group_summary[1:2, i], mu, Sigma, Sinv))
-  }
-  if (logarithm == FALSE){
-    ret = exp(ret)
-  }
-  return(ret)
-}
-
-getGroupLLik2D <- function(group_summary, mu, v, rho){
+getGroupLLik2DGradient <- function(group_summary, mu, v, rho){
   # get (the logarithm of) of the likelihood of a group
   # args:
   #   group_summary: summary of the observations in the group
@@ -260,29 +233,19 @@ getGroupLLik2D <- function(group_summary, mu, v, rho){
   return(ret)
 }
 
-getGroupLiks2D <- function(group_summaries, group_mus, v, rho, logarithm = TRUE){
-  # get (the logarithm of) of the likelihoods of all groups
-  # args:
-  #   group_summaries: a list of group summaries
-  #   group_mus: a matrix of group mean vectors
-  #   v: variance
-  #   rho: correlation parameter
-  #   logarithm: whether or not to return the log likelihood
-  
-  ret = NULL
-  for (i in 1:ncol(group_mus)){
-    ret = c(ret, getGroupLik2D(group_summaries[[i]], group_mus[, i], v, rho))
-  }
-  if (logarithm == FALSE){
-    ret = exp(ret)
-  }
-  return(ret)
-}
-
 findZeroGradient <- function(fx) {
+  # find the zero location of a monotone function
+  # args:
+  #   fx: some monotone function that crosses zero
+  
   left = -.99
   right = .99
+  counter = 0
   while (right - left >= 1E-4) {
+    counter = counter + 1
+    if (counter > 100) {
+      stop("findZeroGradient not converging!")
+    }
     mid = (right + left) / 2
     if (fx(mid) > 0) {
       right = mid
@@ -293,12 +256,10 @@ findZeroGradient <- function(fx) {
   return(c(left, (fx(right) - fx(left)) / (right - left)))
 }
 
-sampleLaplaceApprox <- cmpfun(function(group_summary, mu, vvars) {
+sampleLaplaceApprox <- cmpfun(function(data_summary, mu, vvars) {
   # sample from the Laplace approximation
   # args:
-  #   n: number of samles
-  #   ys: dimension s of y
-  #   yt: dimension t of y
+  #   group_summary: aggregated summaries for the dataset
   #   mu: mean vector
   #   vvars: vector of variances
   
@@ -306,7 +267,7 @@ sampleLaplaceApprox <- cmpfun(function(group_summary, mu, vvars) {
   
   while (abs(x_sample) >= 1) {
     llikGradient <- function(x) {
-      -getGroupLLik2D(group_summary, mu, vvars, x) + 1 / (1 + x) - 1 / (1 - x)
+      -getGroupLLik2DGradient(data_summary, mu, vvars, x) - 1 / (1 + x) + 1 / (1 - x)
     }
     
     # maximize the log-likelihood
@@ -316,6 +277,10 @@ sampleLaplaceApprox <- cmpfun(function(group_summary, mu, vvars) {
     laplace_mean = optim_res[1]
     laplace_var = 1 / c(optim_res[2])
     
+    if (laplace_var <= 0) {
+      return(NA)
+    }
+    
     # sample once
     x_sample = laplace_mean + sqrt(laplace_var) * rnorm(1)
   }
@@ -323,56 +288,140 @@ sampleLaplaceApprox <- cmpfun(function(group_summary, mu, vvars) {
   return(x_sample)
 })
 
-# sample from the tile posteriors given knots fixed at their posterior means
+# sample from the tile conditionals
 sampleTile <- function(Y, ms1, mmu0, verbose = FALSE){
   # sample from the tile posterior
   # Args:
-  #   ys: dimension s of y
-  #   yt: dimension t of y
-  #   shoot: group index of each observation
-  #   samples_knot_s: posterior samples from the knot posterior of dimension s
-  #   samples_knot_t: posterior samples from the knot posterior of dimension t
-  #   nb: number of burn-ins
-  #   ns: number of samples to collect
-  #   njump: thinning parameter
-  #   nu: d.f. of inverse-wishart
-  #   Psi: scale matrix of inverse-wishart
-  #   proposal_var: initial variance of the proposal normal distribution
+  #   Y: dimension s of y
+  #   ms1: posterior draws of the variances from the knot marginal
+  #   mmu0: posterior draws of the means from the knot marginal
   #   verbose: whether or not to print intermediate sampling info
   
   # summary statistics
-  group_summary = aggregateData(Y)
+  data_summary = aggregateData(Y)
   vrho = NULL
   
   # sampling
   for (iter in 1:nrow(ms1)) {
     # print intermediate sampling info
-    if (verbose && (iter %% floor((nb + ns * njump) / 10)) == 0) {
+    if (verbose && (iter %% floor(nrow(ms1) / 100)) == 0) {
       cat("iteration: ", iter, "\n")
     }
     
-    vrho = c(vrho, sampleLaplaceApprox(group_summary, mmu0[iter,], ms1[iter,]))
+    vrho = c(vrho, sampleLaplaceApprox(data_summary, mmu0[iter,], ms1[iter,]))
   }
   
   return(vrho)
 }
 
+# DA MCMC to directly sample from the actual posterior
+sampleViaDAMCMC <- function(Y, ns, verbose = FALSE){
+  n = nrow(Y)
+  # initialization
+  Sigma = diag(1, 2)
+  mu = rep(0, 2)
+  latent_x = matrix(0, n, 2)
+  
+  # outputs
+  mv = NULL
+  vrho = NULL
+  mmu = NULL
+  
+  # helpers
+  f <- function(x, y, mu, s) {
+    y * x - exp(x) - (x - mu)^2 / 2 / s
+  }
+  fprima <- function(x, y, mu, s) {
+    y - exp(x) - (x - mu) / s
+  }
+  
+  # sampling
+  for (iter in 1:ns) {
+    # print intermediate sampling info
+    if (verbose && (iter %% max(floor(ns / 100), 1) == 0)) {
+      cat("iteration: ", iter, "\n")
+    }
+    
+    # sample latent x
+    for (i in 1:n) {
+      mux1 = mu[1]+Sigma[1,2]/Sigma[2,2]*(latent_x[i,2]-mu[2])
+      sx1 = Sigma[1,1] - Sigma[1,2]^2/Sigma[2,2]
+      latent_x[i,1] = ars(n=1,f=f,fprima=fprima,x=c(-10,1,10),ns=100,m=3,emax=64,lb=FALSE,ub=FALSE,
+                          y=Y[i,1],mu=mux1,s=sx1)
+      mux2 = mu[2]+Sigma[1,2]/Sigma[1,1]*(latent_x[i,1]-mu[1])
+      sx2 = Sigma[2,2] - Sigma[1,2]^2/Sigma[1,1]
+      latent_x[i,2] = ars(n=1,f=f,fprima=fprima,x=c(-10,1,10),ns=100,m=3,emax=64,lb=FALSE,ub=FALSE,
+                          y=Y[i,2],mu=mux2,s=sx2)
+    }
+    
+    # sample mu
+    Sigma_mu = solve(n * solve(Sigma) + .01*diag(1,2))
+    mu = rmvnorm(1, Sigma_mu%*%apply(latent_x%*%solve(Sigma), 2, sum), Sigma_mu)
+    
+    # sample Sigma
+    latent_x_demeaned = apply(latent_x, 1, function(x) {
+      x - mu
+    })
+    Sigma = riwish(6 + n, diag(1,2) + latent_x_demeaned%*%t(latent_x_demeaned))
+    
+    mv = cbind(mv, diag(Sigma))
+    vrho = c(vrho, Sigma[1,2]/sqrt(Sigma[1,1]*Sigma[2,2]))
+    mmu = cbind(mmu, c(mu))
+  }
+  
+  return(list(mv=mv,vrho=vrho,mmu=mmu))
+}
 
 # simulation
+set.seed(2018)
 n = 1000
 p = 2 # without loss of generosity, we focus on 2D case
 mu = c(-2, -3)
-diag_Sigma = 0.5+rnorm(2)^2
+diag_Sigma = 0.5+0.5 * rnorm(2)^2
 rho = .8
 Sigma = diag(sqrt(diag_Sigma)) %*% matrix(c(1, rho, rho, 1), 2, 2) %*% diag(sqrt(diag_Sigma))
 x = rmvnorm(n, mu, Sigma)
 y = matrix(rpois(2 * n, exp(c(x))), n, 2)
 
 # fit Bayesian mosaic
-nb = 1000
-ns = 1000
-njump = 5
+nb = 2000
+ns = 500
+njump = 10
 proposal_var = .1
-knot1 = sampleKnot(y[, 1], nb, ns, njump, proposal_var, verbose = TRUE)
-knot2 = sampleKnot(y[, 2], nb, ns, njump, proposal_var, verbose = TRUE)
-tile12 = sampleTile(y, cbind(knot1$vs1, knot2$vs1), cbind(knot1$vmu0, knot2$vmu0), verbose = FALSE)
+ct_knot = proc.time()
+knot1 = sampleKnot(y[, 1], nb, ns, njump, proposal_var, verbose = FALSE)
+knot2 = sampleKnot(y[, 2], nb, ns, njump, proposal_var, verbose = FALSE)
+ct_knot = proc.time() - ct_knot
+ct_tile = proc.time()
+tile12 = sampleTile(y, cbind(knot1$vs1, knot2$vs1), cbind(knot1$vmu0, knot2$vmu0))
+ct_tile = proc.time() - ct_tile
+
+ct_damcmc = proc.time()
+ns_damcmc = 60000
+res_damcmc = sampleViaDAMCMC(y, ns_damcmc, verbose = TRUE)
+ct_damcmc = proc.time() - ct_damcmc
+
+# compare the traceplot of log likelihood
+nb_damcmc = 10000
+v_da = apply(res_damcmc$mv[, (nb_damcmc+1):ns_damcmc], 1, mean)
+v_bm = c(mean(knot1$vs1), mean(knot2$vs1))
+mu_da = apply(res_damcmc$mmu[, (nb_damcmc+1):ns_damcmc], 1, mean)
+mu_bm = c(mean(knot1$vmu0), mean(knot2$vmu0))
+rho_da = mean(res_damcmc$vrho[(nb_damcmc+1):ns_damcmc])
+rho_bm = mean(tile12)
+group_summary = aggregateData(y)
+getGroupLLik2D(group_summary, mu_da, v_da, rho_da)
+getGroupLLik2D(group_summary, mu_bm, v_bm, rho_bm)
+
+# traceplots
+par(mar = c(2.5, 3, 3, 3), mfrow=c(2,1))
+ratio_ct = (ct_knot[3] / 2 + ct_tile[3]) / ct_damcmc[3]
+plot(1:500, tile12, 'l', main = "Bayesian mosaic", xlab = "", ylab = "rho")
+ns_damcmc = length(res_damcmc$vrho)
+plot(1:floor(ns_damcmc * ratio_ct), res_damcmc$vrho[1:floor(ns_damcmc * ratio_ct)], 'l', main = "DAMCMC", xlab = "", ylab = "rho")
+par(mfrow=c(1,1))
+
+# compare the effective sample size
+effectiveSize(tile12)
+effectiveSize(res_damcmc$vrho[1:floor(ns_damcmc * ratio_ct)])
+effectiveSize(res_damcmc$vrho)

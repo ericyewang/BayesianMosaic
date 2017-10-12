@@ -1,14 +1,11 @@
-# Bayesian Mosaic Simulation Study
-# 2D Gaussian with Normal Inverse Wishart (NIW) Prior
-# Definition of NIW, see https://en.wikipedia.org/wiki/Normal-inverse-Wishart_distribution#Posterior_distribution_of_the_parameters
+# Bayesian Mosaic Simulation Study 1
+# Bivariate Gaussian
 
 rm(list=ls())
 
 # dependencies
 suppressMessages(require(MCMCpack))
 suppressMessages(require(mvtnorm))
-suppressMessages(require(LaplacesDemon))
-suppressMessages(require(Rmisc))
 suppressMessages(require(ggplot2))
 suppressMessages(require(compiler))
 
@@ -56,23 +53,16 @@ sampleLaplaceApprox <- cmpfun(function(n, ys, yt, mu, vvars) {
   return(2 / (exp(-x_sample) + 1) - 1)
 })
 
-# sample from the tile posteriors
-sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb, 
-                       ns, njump, lam, nu, Psi, proposal_mean, proposal_sd, 
-                       verbose = FALSE){
-  # sample from the tile posterior
+# sample from the tile conditional
+sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t,
+                       ns, verbose = FALSE){
+  # sample from the tile conditional
   # Args:
-  #   ys: dimension s of y
-  #   yt: dimension t of y
-  #   samples_knot_s: posterior samples from the knot posterior of dimension s
-  #   samples_knot_t: posterior samples from the knot posterior of dimension t
-  #   nb: number of burn-ins
+  #   ys: y_s
+  #   yt: y_t
+  #   samples_knot_s: posterior samples from the knot marginal of dimension s
+  #   samples_knot_t: posterior samples from the knot marginal of dimension t
   #   ns: number of samples to collect
-  #   njump: thinning parameter
-  #   lam: parameter in NIW that controls the prior concentration of mu
-  #   nu: d.f. of inverse-wishart
-  #   Psi: scale matrix of inverse-wishart
-  #   proposal_var: initial variance of the proposal normal distribution
   #   verbose: whether or not to print intermediate sampling info
   
   # initialization
@@ -80,10 +70,8 @@ sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb,
   
   # outputs
   rhos = NULL
-  mus = NULL
-  vars = NULL
   
-  for (iter in 1:(nb + ns * njump)) {
+  for (iter in 1:ns) {
     # print intermediate sampling info
     if (verbose && (iter %% floor((nb + ns * njump) / 100)) == 0) {
       cat("iteration: ", iter, "\n")
@@ -94,14 +82,10 @@ sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t, nb,
     
     rho = sampleLaplaceApprox(1, ys, yt, mu_tmp, diag_Sigma_tmp)
     
-    if (iter > nb & (iter - nb) %% njump == 0) {
-      rhos = c(rhos, rho)
-      mus = cbind(mus, mu_tmp)
-      vars = cbind(vars, diag_Sigma_tmp)
-    }
+    rhos = c(rhos, rho)
   }
   
-  return(list(rhos = rhos, mus = mus, vars = vars))
+  return(rhos)
 }
 
 # run one experiment
@@ -133,32 +117,22 @@ experimentOnce <- function(n, rho, lam, nu, Psi){
   # knot posteriors
   # knot posteriors are the same as the true marginal posteriors, hence we only need to sample
   # marginal distribution of IW, refer to https://en.wikipedia.org/wiki/Inverse-Wishart_distribution#Theorems
-  ns_knot = 1000 # number of posterior samples
-  samples_knots = array(0, c(2, ns_knot, p))
+  ns = 1000 # number of posterior samples
+  samples_knots = array(0, c(2, ns, p))
   for (s in 1:p) {
-    tmp_sigma = rinvgamma(ns_knot, nu_f / 2, Psi_f[s, s] / 2)
+    tmp_sigma = rinvgamma(ns, nu_f / 2, Psi_f[s, s] / 2)
     samples_knots[1, , s] = tmp_sigma
-    samples_knots[2, , s] = mu_f[s] + sqrt(tmp_sigma / lam_f) * rnorm(ns_knot)
-  }
-  
-  # prepare for sampling tiles
-  njump_tile = 1 # thinning parameter
-  nb_tile = 100 # number of burn-ins
-  ns_tile = 1000 # number of posterior samples to collect
-  knots_to_feed_tiles = array(0, c(2, nb_tile + njump_tile * ns_tile, p))
-  for (s in 1:p) {
-    knots_to_feed_tiles[,,s] = samples_knots[, sample(1:ns_knot, nb_tile + njump_tile * ns_tile, replace = TRUE), s]
+    samples_knots[2, , s] = mu_f[s] + sqrt(tmp_sigma / lam_f) * rnorm(ns)
   }
   
   # tile posteriors
-  tile12 = sampleTile(y[,1], y[,2], knots_to_feed_tiles[,,1], knots_to_feed_tiles[,,2], 
-                      nb_tile, ns_tile, njump_tile, lam, nu, Psi, 0.1, FALSE)
+  tile12 = sampleTile(y[,1], y[,2], samples_knots[,,1], 
+                      samples_knots[,,2], ns, FALSE)
   
   return(list(
-    rhos = tile12$rhos, 
-    mus = tile12$mus, 
-    vars = tile12$vars, 
-    ars = tile12$ars,
+    rhos = tile12, 
+    mus = t(samples_knots[2, , s]), 
+    vars = t(samples_knots[1, , s]),
     lam_f = lam_f,
     nu_f = nu_f,
     mu_f = mu_f,
