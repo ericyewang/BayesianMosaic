@@ -4,13 +4,10 @@
 rm(list=ls())
 
 # dependencies
-suppressMessages(require(MCMCpack))
-suppressMessages(require(mvtnorm))
-suppressMessages(require(ggplot2))
-suppressMessages(require(compiler))
+source("~/Documents/yw_git/bayesian_mosaic/helpers.R")
 
 # helper
-sampleLaplaceApprox <- cmpfun(function(n, ys, yt, mu, vvars) {
+sampleLaplaceApprox <- function(n, ys, yt, mu, vvars) {
   # sample from the Laplace approximation
   # args:
   #   n: number of samles
@@ -51,7 +48,7 @@ sampleLaplaceApprox <- cmpfun(function(n, ys, yt, mu, vvars) {
   x_sample = laplace_mean + sqrt(laplace_var) * rnorm(n)
   
   return(2 / (exp(-x_sample) + 1) - 1)
-})
+}
 
 # sample from the tile conditional
 sampleTile <- function(ys, yt, samples_knot_s, samples_knot_t,
@@ -173,7 +170,7 @@ for (n in 100 * 2^(0:8)) {
 x_n = NULL
 y_rho_mean_diff = NULL
 y_rho_sd_diff = NULL
-for (i in 1:counter) {
+for (i in 1:length(experiment_results)) {
   x_n = c(x_n, experiment_results[[i]]$n)
   y_rho_mean_diff = c(y_rho_mean_diff, experiment_results[[i]]$rho_mean_diff)
   y_rho_sd_diff = c(y_rho_sd_diff, experiment_results[[i]]$rho_sd_diff)
