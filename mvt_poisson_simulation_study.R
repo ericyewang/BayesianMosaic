@@ -30,6 +30,11 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
   cat("Data-augmented MCMC...\n")
   ns_damcmc = 10000
   res_damcmc = sampleViaDAMCMC(Y, ns_damcmc, ct_bm[3], verbose=TRUE, parallel=parallel)
+  ns_earlystop = nrow(res_damcmc$sample_mu)
+  # throw away the first half as burn-ins
+  res_damcmc$sample_mu = res_damcmc$sample_mu[floor(ns_earlystop):ns_earlystop,]
+  res_damcmc$sample_diag_Sigma = res_damcmc$sample_diag_Sigma[floor(ns_earlystop):ns_earlystop,]
+  res_damcmc$sample_Correlation = res_damcmc$sample_Correlation[floor(ns_earlystop):ns_earlystop,]
   
   # gather performance info
   n_pair = ncol(res$sample_Correlation)
@@ -103,12 +108,12 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
 n=10000
 p = 3
 corr_mats = sampleLKJ(1000, p)
-nb=1000
-ns=20
-njump=1
+nb=5000
+ns=500
+njump=10
 parallel=TRUE
 corr_mat = corr_mats[1,,]
-mu = -3 + rnorm(p)
+mu = 3 + rnorm(p)
 diag_Sigma = 0.5 + 0.5 * rnorm(p)^2
 res = experimentOnce(n, p, mu, diag_Sigma, corr_mat, nb, ns, njump, parallel=parallel)
 
