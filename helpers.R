@@ -6,6 +6,7 @@ suppressMessages(require(mvtnorm))
 suppressMessages(require(pracma))
 suppressMessages(require(MCMCpack))
 suppressMessages(require(compiler))
+suppressMessages(require(ars))
 suppressMessages(require(parallel))
 ncores = detectCores() - 1
 
@@ -29,6 +30,34 @@ compressCount <- function(y){
   return(ret)
 }
 
+Corr2Vec <- function(S) {
+  # TODO
+  
+  p = ncol(S)
+  ret = NULL
+  for (i in 1:(p-1)) {
+    for (j in (i+1):p) {
+      ret = c(ret, S[i,j])
+    }
+  }
+  return(ret)
+}
+
+Vec2Corr <- function(rhos, p) {
+  # TODO
+  
+  ret = matrix(1,p,p)
+  counter = 0
+  for (i in 1:(p-1)) {
+    for (j in (i+1):p) {
+      counter = counter+1
+      ret[i,j] = rhos[counter]
+      ret[j,i] = ret[i,j]
+    }
+  }
+  return(ret)
+}
+
 # likelihood functions via numerical integration, 1-d or 2-d
 genLikPoissonLogNormal <- function(y, mu, v){
   # compute the likelihood function value for a individual observation from a
@@ -45,7 +74,7 @@ genLikPoissonLogNormal <- function(y, mu, v){
             upper = max(log(y + 0.1), mu) + 4 * sqrt(v), stop.on.error=FALSE)$value
 }
 
-genLikPoissonLogGuassian2D <- function(y, mu, Sigma, Sinv){
+genLikPoissonLogGaussian2D <- function(y, mu, Sigma, Sinv){
   # compute the likelihood function value for a individual observation from a multivariate 
   # Poisson log-Gaussian distribution via numerical integration
   # args:
@@ -54,16 +83,18 @@ genLikPoissonLogGuassian2D <- function(y, mu, Sigma, Sinv){
   #   Sigma: covariance matrix
   #   Sinv: precision matrix (avoid redundant matrix inversion)
   
-  integrand <- function(x1, x2) {
-    return(exp(y[1] * x1 + y[2] * x2 - lfactorial(y[1]) - lfactorial(y[2]) -
-                 ((x1 - mu[1])^2 * Sinv[1, 1] + 2 * (x1 - mu[1]) * (x2 - mu[2]) * Sinv[1, 2] + (x2 - mu[2])^2 * Sinv[2, 2]) / 2 -
-                 exp(x1) - exp(x2)) * (2 * pi)^(-1) * det(Sigma)^-.5)
+  upper_tri = chol(Sigma)
+  integrand <- function(z1, z2) {
+    # change of variables
+    x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
+    x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
+    dpois(y[1], exp(x1))*dpois(y[2], exp(x2))*dnorm(z1)*dnorm(z2)
+    # note that dmvnorm(cbind(c(x1),c(x2)), mu, S)*det(upper_tri) equals dnorm(z1)*dnorm(z2)
   }
-  
-  return(quad2d(integrand, min(log(y[1] + 0.1), mu[1]) - 4 * sqrt(Sigma[1, 1]), 
-                max(log(y[1] + 0.1), mu[1]) + 4 * sqrt(Sigma[1, 1]), 
-                min(log(y[2] + 0.1), mu[2]) - 4 * sqrt(Sigma[2, 2]), 
-                max(log(y[2] + 0.1) , mu[2]) + 4 * sqrt(Sigma[2, 2]), 64))
+  # finite lower and upper bounds have to be provided for quad2d
+  # in our case we set it to be 10 sd away from the center to make sure that
+  # the function value is negligible
+  quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
 genLikBinomialLogNormal <- function(y, N, mu, v){
@@ -82,18 +113,17 @@ genLikBinomialLogNormal <- function(y, N, mu, v){
             upper = max(log((y + 0.1) / N), mu) + 4 * sqrt(v), stop.on.error=FALSE)$value
 }
 
-genLikBinomialLogGuassian2D <- function(y, Ns, mu, Sigma, Sinv){
+genLikBinomialLogGaussian2D <- function(y, Ns, mu, Sigma, Sinv){
   # TODO
   
-  integrand <- function(x1, x2) {
-    return(exp(y[1] * x1 + y[2] * x2 - ((x1 - mu[1])^2 * Sinv[1, 1] + 2 * (x1 - mu[1]) * (x2 - mu[2]) * Sinv[1, 2] + (x2 - mu[2])^2 * Sinv[2, 2]) / 2)
-           * (2 * pi)^(-1) * det(Sigma)^-.5 / ((1 + exp(x1))^Ns[1]) / ((1 + exp(x2))^Ns[2]))
+  upper_tri = chol(Sigma)
+  integrand <- function(z1, z2) {
+    x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
+    x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
+    dbinom(y[1], Ns[1], 1/(1+exp(-x1)))*dbinom(y[2], Ns[2], 1/(1+exp(-x2)))*dnorm(z1)*dnorm(z2)
   }
   
-  return(quad2d(integrand, min(log((y[1] + 0.1) / Ns[1]), mu[1]) - 4 * sqrt(Sigma[1, 1]),
-                max(log((y[1] + 0.1) / Ns[1]), mu[1]) + 4 * sqrt(Sigma[1, 1]), 
-                min(log((y[2] + 0.1) / Ns[2]), mu[2]) - 4 * sqrt(Sigma[2, 2]),
-                max(log((y[2] + 0.1) / Ns[2]) , mu[2]) + 4 * sqrt(Sigma[2, 2]), 64))
+  quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
 genLogLikelihood <- function(compressed_y, likelihood, mu, log = TRUE, ...){
@@ -115,7 +145,7 @@ genLogLikelihood <- function(compressed_y, likelihood, mu, log = TRUE, ...){
     }
   } else if (likelihood == "BinomialLogGaussian2D") {
     for (i in 1:ncol(compressed_y)){
-      ret = ret + compressed_y[1, i] * log(genLikBinomialLogGuassian2D(y = compressed_y[-1, i], mu = mu, ...))
+      ret = ret + compressed_y[1, i] * log(genLikBinomialLogGaussian2D(y = compressed_y[-1, i], mu = mu, ...))
     }
   }
   
@@ -140,7 +170,7 @@ genGroupLogLikhood <- function(group_compressed_y, likelihood, group_mus, log = 
 }
 
 # gradient w.r.t. rho of the likelihood functions via numerical integration, 2-d
-genLikPoissonLogGuassian2DGradient <- function(y, mu, Sigma, Sinv){
+genLikPoissonLogGaussian2DGradient <- function(y, mu, Sigma, Sinv){
   # likelihood function value for a individual observation via numerical integration
   # args:
   #   y: observation
@@ -148,36 +178,36 @@ genLikPoissonLogGuassian2DGradient <- function(y, mu, Sigma, Sinv){
   #   Sigma: covariance matrix
   #   Sinv: precision matrix
   
+  upper_tri = chol(Sigma)
   v = diag(Sigma)
   rho = Sigma[1, 2] / sqrt(prod(v))
-  integrand <- function(x1, x2) {
+  integrand <- function(z1, z2) {
+    x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
+    x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
     x1_tilde = (x1 - mu[1]) / sqrt(v[1])
     x2_tilde = (x2 - mu[2]) / sqrt(v[2])
     gradient_term = (rho * (1 - rho^2) + x1_tilde * x2_tilde * (1 + rho^2) - rho * (x1_tilde^2 + x2_tilde^2)) / (1 - rho^2)^2
-    return(exp(y[1] * x1 + y[2] * x2 - lfactorial(y[1]) - lfactorial(y[2]) -
-                 ((x1 - mu[1])^2 * Sinv[1, 1] + 2 * (x1 - mu[1]) * (x2 - mu[2]) * Sinv[1, 2] + (x2 - mu[2])^2 * Sinv[2, 2]) / 2 -
-                 exp(x1) - exp(x2)) * (2 * pi)^(-1) * det(Sigma)^-.5 * gradient_term)
+    return(dpois(y[1], exp(x1))*dpois(y[2], exp(x2))*dnorm(z1)*dnorm(z2)*gradient_term)
   }
-  return(quad2d(integrand, min(log(y[1] + 0.1), mu[1])-4 * sqrt(v[1]), 
-                max(log(y[1] + 0.1), mu[1]) + 4 * sqrt(v[1]), min(log(y[2] + 0.1), mu[2]) - 4 * sqrt(v[2]), 
-                max(log(y[2] + 0.1) , mu[2]) + 4 * sqrt(v[2]), 64))
+  
+  quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
-genLikBinomialLogGuassian2DGradient <- function(y, Ns, mu, Sigma, Sinv){
+genLikBinomialLogGaussian2DGradient <- function(y, Ns, mu, Sigma, Sinv){
   # TODO
   
+  upper_tri = chol(Sigma)
   v = diag(Sigma)
   rho = Sigma[1, 2] / sqrt(prod(v))
-  integrand <- function(x1, x2) {
+  integrand <- function(z1, z2) {
+    x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
+    x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
     x1_tilde = (x1 - mu[1]) / sqrt(v[1])
     x2_tilde = (x2 - mu[2]) / sqrt(v[2])
     gradient_term = (rho * (1 - rho^2) + x1_tilde * x2_tilde * (1 + rho^2) - rho * (x1_tilde^2 + x2_tilde^2)) / (1 - rho^2)^2
-    return(exp(y[1] * x1 + y[2] * x2 - ((x1 - mu[1])^2 * Sinv[1, 1] + 2 * (x1 - mu[1]) * (x2 - mu[2]) * Sinv[1, 2] + (x2 - mu[2])^2 * Sinv[2, 2]) / 2)
-           * (2 * pi)^(-1) * det(Sigma)^-.5 / ((1 + exp(x1))^Ns[1]) / ((1 + exp(x2))^Ns[2]) * gradient_term)
+    return(dbinom(y[1], Ns[1], 1/(1+exp(-x1)))*dbinom(y[2], Ns[2], 1/(1+exp(-x2)))*dnorm(z1)*dnorm(z2)*gradient_term)
   }
-  return(quad2d(integrand, min(log((y[1] + 0.1) / Ns[1]), mu[1]) - 4 * sqrt(v[1]), 
-                max(log((y[1] + 0.1) / Ns[1]), mu[1]) + 4 * sqrt(v[1]), min(log((y[2] + 0.1) / Ns[2]), mu[2]) - 4 * sqrt(v[2]), 
-                max(log((y[2] + 0.1) / Ns[2]) , mu[2]) + 4 * sqrt(v[2]), 64))
+  quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
 genLogLikelihoodGradient <- function(compressed_y, likelihood, ...){
@@ -187,13 +217,13 @@ genLogLikelihoodGradient <- function(compressed_y, likelihood, ...){
   
   if (likelihood == "PoissonLogGaussian2D") {
     for (i in 1:ncol(compressed_y)){
-      ret = ret + compressed_y[1, i] * genLikPoissonLogGuassian2DGradient(y = compressed_y[-1, i], ...) / 
-        genLikPoissonLogGuassian2D(y = compressed_y[-1, i], ...)
+      ret = ret + compressed_y[1, i] * genLikPoissonLogGaussian2DGradient(y = compressed_y[-1, i], ...) / 
+        genLikPoissonLogGaussian2D(y = compressed_y[-1, i], ...)
     }
   } else if (likelihood == "BinomialLogGaussian2D") {
     for (i in 1:ncol(compressed_y)){
-      ret = ret + compressed_y[1, i] * genLikBinomialLogGuassian2DGradient(y = compressed_y[-1, i], ...) / 
-        genLikBinomialLogGuassian2D(y = compressed_y[-1, i], ...)
+      ret = ret + compressed_y[1, i] * genLikBinomialLogGaussian2DGradient(y = compressed_y[-1, i], ...) / 
+        genLikBinomialLogGaussian2D(y = compressed_y[-1, i], ...)
     }
   }
   
@@ -263,7 +293,7 @@ sampleLaplaceApprox <- function(compressed_y, model, mu, vvars, ...) {
   laplace_var = 1 / c(optim_res[2])
   
   if (laplace_var <= 0) {
-    return(NA)
+    return(runif(1, min=-1, max=1))
   }
   
   while (abs(x_sample) >= 1) {
@@ -287,8 +317,10 @@ auxMatrix <- function(Sigma) {
   return (aux_mat)
 }
 
-sampleViaDAMCMC <- function(Y, ns, verbose = FALSE){
+sampleViaDAMCMC <- function(Y, ns, stop_time=NULL, verbose=FALSE, parallel=FALSE){
   # TODO
+  
+  start_time = proc.time()
   
   n = nrow(Y)
   p = ncol(Y)
@@ -300,7 +332,8 @@ sampleViaDAMCMC <- function(Y, ns, verbose = FALSE){
   
   # outputs
   sample_mu = NULL
-  sample_Sigma = NULL
+  sample_diag_Sigma = NULL
+  sample_Correlation = NULL
   
   # helpers
   f <- function(x, y, mu, s) {
@@ -310,43 +343,61 @@ sampleViaDAMCMC <- function(Y, ns, verbose = FALSE){
     y - exp(x) - (x - mu) / s
   }
   
-  aux_mat = auxMatrix(Sigma)
-  
   # sampling
   for (iter in 1:ns) {
+    # early stop
+    if (!is.null(stop_time) & (proc.time()-start_time)[3]>stop_time) {
+      return(list(sample_mu=sample_mu, sample_diag_Sigma=sample_diag_Sigma,
+                  sample_Correlation=sample_Correlation, ealry_stop=TRUE))
+    }
+    
     # print intermediate sampling info
-    if (verbose && (iter %% max(floor(ns / 100), 1) == 0)) {
+    if (verbose && (iter %% max(floor(ns/100), 1) == 0)) {
       cat("iteration: ", iter, "\n")
     }
     
     # sample latent x
-    latent_x = matrix(unlist(mclapply(1:n, FUN = function(i){
+    aux_mat = auxMatrix(Sigma)
+    sample_latent_x <- function(i) {
       x = latent_x[i,]
       for (j in 1:p) {
-        mux = mu[j] + sum(aux_mat[j, -j] * (x[-j] - mu[-j]))
+        mux = mu[j] + sum(aux_mat[j, -j]*(x[-j]-mu[-j]))
         # subtract the global mean from latent x's
         x[j] = ars(n = 1, f = f, fprima = fprima, x = c(-50, 1, 50), ns = 100,
                    m = 3, emax = 64, lb = FALSE, ub = FALSE,
                    y = Y[i,j], mu = mux, s = aux_mat[j, j])
       }
       return( x )
-    },mc.cores = ncores)), n, p, byrow = TRUE)
+    }
+    if (parallel) {
+      latent_x = matrix(unlist(mclapply(1:n, FUN=sample_latent_x, mc.cores=ncores)), n, p, byrow = TRUE)
+    } else {
+      for (i in 1:n) {
+        latent_x[i,] = sample_latent_x(i)
+      }
+    }
     stopifnot(is.matrix(latent_x) && nrow(latent_x) == n)
     
     # sample mu & Sigma
     mu = apply(latent_x, 2, mean)
-    Sigma = riwish(p + 2 + n, diag(1, p) + t(mu) %*% mu)
+    latent_x_demeaned = latent_x-matrix(rep(mu,n),n,p,byrow=TRUE)
+    Sigma = riwish(p + 2 + n, diag(1, p) + t(latent_x_demeaned)%*%latent_x_demeaned)
     
     # prepare outputs
-    sample_mu = cbind(sample_mu, c(mu))
-    sample_Sigma = cbind(sample_Sigma, c(Sigma))
+    sample_mu = rbind(sample_mu, c(mu))
+    sample_diag_Sigma = rbind(sample_diag_Sigma, diag(Sigma))
+    Corr = diag(sqrt(1/diag(Sigma)))%*%Sigma%*%diag(sqrt(1/diag(Sigma)))
+    sample_Correlation = rbind(sample_Correlation, Corr2Vec(Corr))
   }
   
-  return(list(sample_mu = sample_mu, sample_Sigma = sample_Sigma))
+  return(list(sample_mu=sample_mu, sample_diag_Sigma=sample_diag_Sigma,
+              sample_Correlation=sample_Correlation, ealry_stop=FALSE))
 }
 
-# Bayesian Mosaic
-sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, ...) {
+# MCMC based on 2-d integration
+sampleVia2DInt <- function(y, ns, proposal_var, likelihood, stop_time=NULL,
+                           ada_prop=0.5, verbose=FALSE, ...) {
+  #   ada_prop: # the proportion of burn-ins for which adapting the proposal variance is based on
   # TODO
   
   acr_target = 0.25 # target acceptance rate
@@ -354,177 +405,196 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, .
   dcf_pv = 0.9 # discount factor for adapting the proposal variance
   dcf_multiplier = 0.9 # discount factor for adapting the multiplier
   dcf_acr = 0.99 # discount factor for averaging the historical acceptance rate
-  ada_prop = 0.8 # the proportion of burn-ins for which adapting the proposal variance is based on
+  
+  start_time = proc.time()
   
   # compress the counts
   compressed_y = compressCount(y)
   
   # initialization
-  s = 1
-  mu = 0
+  rho = 0
+  mu1 = 0
+  s1 = 1
+  mu2 = 0
+  s2 = 1
   prv_llik = -Inf
-  historical_acr = 1
+  historical_acr_mu = 1
+  historical_acr_s = 1
+  historical_acr_rho = 1
   
   # storing the results
-  sample_s = NULL
-  sample_mu = NULL
+  sample_rho = NULL
+  sample_mu1 = NULL
+  sample_s1 = NULL
+  sample_mu2 = NULL
+  sample_s2 = NULL
   
   # preparation for adapting
-  proposal_var_mu = proposal_var
-  window_memory_mu = rep(0, 100)
-  window_memory_mu[100] = mu
-  proposal_var_s = proposal_var
-  window_memory_s = rep(0, 100)
-  window_memory_s[100] = s
-  adaptive_multiplier = 1
+  proposal_var_rho = proposal_var
+  window_memory_rho = rep(0, 100)
+  window_memory_rho[100] = rho
+  proposal_var_mu1 = proposal_var
+  window_memory_mu1 = rep(0, 100)
+  window_memory_mu1[100] = mu1
+  proposal_var_s1 = proposal_var
+  window_memory_s1 = rep(0, 100)
+  window_memory_s1[100] = s1
+  proposal_var_mu2 = proposal_var
+  window_memory_mu2 = rep(0, 100)
+  window_memory_mu2[100] = mu2
+  proposal_var_s2 = proposal_var
+  window_memory_s2 = rep(0, 100)
+  window_memory_s2[100] = s2
+  adaptive_multiplier_mu = 1
+  adaptive_multiplier_s = 1
+  adaptive_multiplier_rho = 1
   
   # sampling
-  for (iter in 1:(nb + ns * njump)) {
+  for (iter in 1:ns) {
+    # early stop
+    if (!is.null(stop_time) & (proc.time()-start_time)[3]>stop_time) {
+      return(list(sample_rho=sample_rho, sample_mu1=sample_mu1,
+                  sample_s1=sample_s1, sample_mu2=sample_mu2,
+                  sample_s2=sample_s2, ealry_stop=TRUE))
+    }
+    
     # print intermediate sampling info
-    if (verbose && (iter %% max(floor((nb + ns * njump) / 100), 1)) == 0) {
+    if (verbose && (iter %% max(floor(ns/100), 1) == 0)) {
       cat("iteration: ", iter, "\n")
     }
     
-    # update mu & s
-    new_mu = mu + sqrt(proposal_var_mu) * rnorm(1)
-    new_s = s + sqrt(proposal_var_s) * rnorm(1)
-    if (new_s > 0) {
-      if (model == "mvtPoisson") {
-        new_llik = genLogLikelihood(compressed_y = compressed_y, likelihood = "PoissonLogNormal", 
-                                    mu = new_mu, log = TRUE, v = new_s)
-      } else if (model == "mvtBinomial") {
-        new_llik = genLogLikelihood(compressed_y = compressed_y, likelihood = "BinomialLogNormal", 
-                                    mu = new_mu, log = TRUE, v = new_s, ...)
-      }
-      new_lpost = new_llik + dgamma(1 / new_s, shape = 2, rate = 2, log = TRUE)
-      prv_lpost = prv_llik + dgamma(1 / s, shape = 2, rate = 2, log = TRUE)
-      acr = min(exp(new_lpost - prv_lpost), 1) # symmetric proposal
-      historical_acr = dcf_acr * historical_acr + (1 - dcf_acr) * acr
+    # update mu's
+    new_mu1 = mu1 + sqrt(proposal_var_mu1)*rnorm(1)
+    new_mu2 = mu2 + sqrt(proposal_var_mu2)*rnorm(1)
+    Sigma = diag(c(sqrt(s1), sqrt(s2)))%*%matrix(c(1,rho,rho,1),2,2)%*%
+      diag(c(sqrt(s1), sqrt(s2)))
+    Sinv = solve(Sigma)
+    new_llik = genLogLikelihood(compressed_y=compressed_y, likelihood=likelihood, 
+                                mu=c(new_mu1, new_mu2), log=TRUE, Sigma=Sigma,
+                                Sinv=Sinv, ...)
+    acr = min(exp(new_llik-prv_llik), 1) # symmetric proposal
+    historical_acr_mu = dcf_acr*historical_acr_mu + (1-dcf_acr)*acr
+    if (runif(1) <= acr) {
+      mu1 = new_mu1
+      mu2 = new_mu2
+      prv_llik = new_llik
+    }
+    
+    # update s
+    new_s1 = s1 + sqrt(proposal_var_s1)*rnorm(1)
+    new_s2 = s2 + sqrt(proposal_var_s2)*rnorm(1)
+    if (new_s1>0 & new_s2>0) {
+      new_Sigma = diag(c(sqrt(new_s1), sqrt(new_s2)))%*%matrix(c(1,rho,rho,1),2,2)%*%
+        diag(c(sqrt(new_s1), sqrt(new_s2)))
+      new_Sinv = solve(new_Sigma)
+      new_llik = genLogLikelihood(compressed_y=compressed_y, likelihood=likelihood, 
+                                  mu=c(new_mu1, new_mu2), log=TRUE, Sigma=new_Sigma,
+                                  Sinv=new_Sinv, ...)
+      new_lpost = new_llik + dgamma(1/new_s1, shape=2, rate=2, log=TRUE) + 
+        dgamma(1/new_s2, shape=2, rate=2, log=TRUE)
+      prv_lpost = prv_llik + dgamma(1/s1, shape=2, rate=2, log=TRUE) + 
+        dgamma(1/s2, shape=2, rate=2, log=TRUE)
+      acr = min(exp(new_lpost-prv_lpost), 1) # symmetric proposal
+      historical_acr_s = dcf_acr*historical_acr_s + (1-dcf_acr)*acr
       if (runif(1) <= acr) {
-        mu = new_mu
-        s = new_s
+        s1 = new_s1
+        s2 = new_s2
         prv_llik = new_llik
       }
     } else {
-      historical_acr = dcf_acr * historical_acr
+      historical_acr_s = dcf_acr*historical_acr_s
+    }
+    
+    # update rho
+    new_rho = rho + sqrt(proposal_var_rho)*rnorm(1)
+    if (abs(new_rho)<1) {
+      new_Sigma = diag(c(sqrt(s1), sqrt(s2)))%*%matrix(c(1,new_rho,new_rho,1),2,2)%*%
+        diag(c(sqrt(s1), sqrt(s2)))
+      new_Sinv = solve(new_Sigma)
+      new_llik = genLogLikelihood(compressed_y=compressed_y, likelihood=likelihood, 
+                                  mu=c(new_mu1, new_mu2), log=TRUE, Sigma=new_Sigma,
+                                  Sinv=new_Sinv, ...)
+      acr = min(exp(new_llik-prv_llik), 1) # symmetric proposal
+      historical_acr_rho = dcf_acr*historical_acr_rho + (1-dcf_acr)*acr
+      if (runif(1) <= acr) {
+        rho = new_rho
+        prv_llik = new_llik
+      }
+    } else {
+      historical_acr_rho = dcf_acr*historical_acr_rho
     }
     
     # store samples
     if (iter > nb & (iter - nb) %% njump == 0) {
-      sample_s = c(sample_s, s)
-      sample_mu = c(sample_mu, mu)
+      sample_rho = c(sample_rho, rho)
+      sample_mu1 = c(sample_mu1, mu1)
+      sample_s1 = c(sample_s1, s1)
+      sample_mu2 = c(sample_mu2, mu2)
+      sample_s2 = c(sample_s2, s2)
     }
     
     # adapting proposal sd
-    if (iter <= (nb * ada_prop)) {
-      # mu and s
-      window_memory_mu[1:99] = window_memory_mu[2:100]
-      window_memory_mu[100] = mu
-      window_memory_s[1:99] = window_memory_s[2:100]
-      window_memory_s[100] = s
-      if (historical_acr > (acr_target + acr_tol)) {
+    if (iter<(nb*(1+ada_prop)/2) & iter>=(nb*(1-ada_prop)/2)) {
+      # mu
+      window_memory_mu1[1:99] = window_memory_mu1[2:100]
+      window_memory_mu1[100] = mu1
+      window_memory_mu2[1:99] = window_memory_mu2[2:100]
+      window_memory_mu2[100] = mu2
+      if (historical_acr_mu > (acr_target + acr_tol)) {
         # to shrink acr, make the multipler larger
-        adaptive_multiplier = dcf_multiplier * adaptive_multiplier + 
-          (1 - dcf_multiplier) * (adaptive_multiplier + 1)
+        adaptive_multiplier_mu = dcf_multiplier*adaptive_multiplier_mu + 
+          (1-dcf_multiplier) * (adaptive_multiplier_mu+1)
       }
-      if (historical_acr < (acr_target - acr_tol)) {
+      if (historical_acr_mu < (acr_target - acr_tol)) {
         # to increase acr, make the multipler smaller
-        adaptive_multiplier = dcf_multiplier * adaptive_multiplier + 
-          (1 - dcf_multiplier) * max(adaptive_multiplier - 1, 1)
+        adaptive_multiplier_mu = dcf_multiplier*adaptive_multiplier_mu + 
+          (1-dcf_multiplier) * max(adaptive_multiplier_mu-1, 1)
       }
-      proposal_var_mu = dcf_pv * proposal_var_mu + 
-        (1 - dcf_pv) * adaptive_multiplier * var(window_memory_mu, na.rm = TRUE)
-      proposal_var_s = dcf_pv * proposal_var_s + 
-        (1 - dcf_pv) * adaptive_multiplier * var(window_memory_s, na.rm = TRUE)
+      proposal_var_mu1 = dcf_pv*proposal_var_mu1 + 
+        (1-dcf_pv)*adaptive_multiplier_mu*var(window_memory_mu1, na.rm = TRUE)
+      proposal_var_mu2 = dcf_pv*proposal_var_mu2 + 
+        (1-dcf_pv)*adaptive_multiplier_mu*var(window_memory_mu2, na.rm = TRUE)
+      
+      # s
+      window_memory_s1[1:99] = window_memory_s1[2:100]
+      window_memory_s1[100] = s1
+      window_memory_s2[1:99] = window_memory_s2[2:100]
+      window_memory_s2[100] = s2
+      if (historical_acr_s > (acr_target + acr_tol)) {
+        # to shrink acr, make the multipler larger
+        adaptive_multiplier_s = dcf_multiplier*adaptive_multiplier_s + 
+          (1-dcf_multiplier) * (adaptive_multiplier_s+1)
+      }
+      if (historical_acr_s < (acr_target - acr_tol)) {
+        # to increase acr, make the multipler smaller
+        adaptive_multiplier_s = dcf_multiplier*adaptive_multiplier_s + 
+          (1-dcf_multiplier) * max(adaptive_multiplier_s-1, 1)
+      }
+      proposal_var_s1 = dcf_pv*proposal_var_s1 + 
+        (1-dcf_pv)*adaptive_multiplier_s*var(window_memory_s1, na.rm = TRUE)
+      proposal_var_s2 = dcf_pv*proposal_var_s2 + 
+        (1-dcf_pv)*adaptive_multiplier_s*var(window_memory_s2, na.rm = TRUE)
+      
+      # rho
+      window_memory_rho[1:99] = window_memory_rho[2:100]
+      window_memory_rho[100] = rho
+      if (historical_acr_rho > (acr_target + acr_tol)) {
+        # to shrink acr, make the multipler larger
+        adaptive_multiplier_rho = dcf_multiplier*adaptive_multiplier_rho + 
+          (1-dcf_multiplier) * (adaptive_multiplier_rho+1)
+      }
+      if (historical_acr_rho < (acr_target - acr_tol)) {
+        # to increase acr, make the multipler smaller
+        adaptive_multiplier_rho = dcf_multiplier*adaptive_multiplier_rho + 
+          (1-dcf_multiplier) * max(adaptive_multiplier_rho-1, 1)
+      }
+      proposal_var_rho = dcf_pv*proposal_var_rho + 
+        (1-dcf_pv)*adaptive_multiplier_rho*var(window_memory_rho, na.rm = TRUE)
     }
   }
   
-  return(list(sample_s = sample_s,
-              sample_mu = sample_mu,
-              historical_acr = historical_acr))
+  return(list(sample_rho=sample_rho, sample_mu1=sample_mu1,
+              sample_s1=sample_s1, sample_mu2=sample_mu2,
+              sample_s2=sample_s2, ealry_stop=FALSE))
 }
 
-sampleTile <- function(y, sample_mu, sample_s, model, verbose = FALSE, ...) {
-  # TODO
-  
-  ns = ncol(sample_mu)
-  # compress the counts
-  compressed_y = compressCount(y)
-  
-  # storing the results
-  sample_rho = NULL
-  
-  # sampling
-  for (iter in 1:ns) {
-    # print intermediate sampling info
-    if (verbose) {
-      cat("iteration: ", iter, "\n")
-    }
-    
-    sample_rho = c(sample_rho, sampleLaplaceApprox(compressed_y, model, sample_mu[,iter], sample_s[,iter], ...))
-  }
-  
-  return(sample_rho)
-}
-
-bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model, verbose = FALSE, Ns = NULL) {
-  # TODO
-  
-  if (verbose) {
-    cat("Bayesian Mosaic\n")
-    cat("learning posterior knots...\n")
-  }
-  
-  p = ncol(Y)
-  knots = mclapply(1:p, FUN = function(k){
-    return( sampleKnot(y = Y[,k], nb = nb, ns = ns, njump = njump, 
-                       proposal_var = proposal_var, model = model, verbose = verbose, N = Ns[k]) )
-  }, mc.cores = ncores)
-  
-  if (verbose) {
-    cat("learning posterior tiles...\n")
-  }
-  
-  pairs = NULL
-  for (x in 1:(p - 1)) {
-    for (y in (x + 1):p) {
-      pairs = rbind(pairs, c(x, y))
-    }
-  }
-  n_pair = nrow(pairs)
-  
-  tiles = mclapply(1:n_pair, FUN = function(k){
-    s = pairs[k, 1]
-    t = pairs[k, 2]
-    y = cbind(Y[,s], Y[,t])
-    sample_mu = rbind(knots[[k]]$sample_mu, knots[[t]]$sample_mu)
-    sample_s = rbind(knots[[k]]$sample_s, knots[[t]]$sample_s)
-    return( sampleTile(y = y, sample_mu = sample_mu, sample_s = sample_s, 
-                       model = model, verbose = verbose, Ns = Ns[c(s, t)]) )
-  },mc.cores = ncores)
-  
-  # write outputs
-  if (verbose) {
-    cat("writing outputs...\n")
-  }
-  
-  sample_mu = matrix(0, p, ns)
-  sample_diag_Sigma = matrix(0, p, ns)
-  sample_Correlation = array(1, c(p, p, ns))
-  
-  for (j in 1:p) {
-    sample_mu[j,] = knots[[j]]$sample_mu
-    sample_diag_Sigma[j,] = knots[[j]]$sample_s
-  }
-  
-  for (k in 1:n_pair) {
-    s = pairs[k, 1]
-    t = pairs[k, 2]
-    sample_Correlation[s, t,] = tiles[[k]]
-    sample_Correlation[t, s,] = sample_Correlation[s, t,]
-  }
-  
-  return(list(sample_mu = sample_mu,
-              sample_diag_Sigma = sample_diag_Sigma,
-              sample_Correlation = sample_Correlation))
-}
