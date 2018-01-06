@@ -34,100 +34,108 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
   
   # 4. gather performance info
   cat("Evaluating Performance...\n")
-  n_pair = ncol(res$sample_Correlation)
+  n_pair = ncol(res$sample_corr)
   true_corr = Corr2Vec(corr_mat)
   
   # bayesian mosaic
-  biw_diag_Sigma = NULL
-  biw_Correlation = NULL
-  for (i in 1:1000) {
+  biw_diag = NULL
+  biw_corr = NULL
+  for (i in 1:ns) {
     tmp = riwish(res$best_iw_v, res$best_iw_S)
     tmp_corr = diag(sqrt(1/diag(tmp)))%*%tmp%*%diag(sqrt(1/diag(tmp)))
-    biw_diag_Sigma = rbind(biw_diag_Sigma, diag(tmp))
-    biw_Correlation = rbind(biw_Correlation, Corr2Vec(tmp_corr))
+    biw_diag = rbind(biw_diag, diag(tmp))
+    biw_corr = rbind(biw_corr, Corr2Vec(tmp_corr))
   }
-  perf_bm = list(err_mu = apply(res$sample_mu,2,mean)-mu,
-                 err_diag_Sigma = apply(res$sample_diag_Sigma,2,mean)-diag_Sigma,
-                 err_biw_diag_Sigma = apply(biw_diag_Sigma,2,mean)-diag_Sigma,
-                 err_Corr = apply(res$sample_Correlation,2,mean)-true_corr,
-                 err_biw_Corr = apply(biw_Correlation,2,mean)-true_corr,
+  perf_bm = list(perc_psd = mean(apply(res$sample_corr,1,FUN=function(x){
+                   eigen(Vec2Corr(x,p),only.values=TRUE)$values[p]>0
+                 })), # percentage of posterior correlation matrix that satisfies psd
+                 pred_accuracy = evalPredAccuracy(500, mu, Sigma, res$sample_mu, 
+                                                  biw_diag, biw_corr),
+                 err_mu = apply(res$sample_mu,2,mean)-mu,
+                 err_diag_Sigma = apply(res$sample_diag,2,mean)-diag_Sigma,
+                 err_biw_diag = apply(biw_diag,2,mean)-diag_Sigma,
+                 err_Corr = apply(res$sample_corr,2,mean)-true_corr,
+                 err_biw_Corr = apply(biw_corr,2,mean)-true_corr,
                  ess_mu = effectiveSize(res$sample_mu),
-                 ess_diag_Sigma = effectiveSize(res$sample_diag_Sigma),
-                 ess_corr = effectiveSize(res$sample_Correlation),
+                 ess_diag_Sigma = effectiveSize(res$sample_diag),
+                 ess_corr = effectiveSize(res$sample_corr),
                  coverage_mu = sapply(1:p,FUN=function(j){
                    return(mu[j]>quantile(res$sample_mu[,j],.025)&
                             mu[j]<quantile(res$sample_mu[,j],.975))
                  }),
                  coverage_diag_Sigma = sapply(1:p,FUN=function(j){
-                   return(diag_Sigma[j]>quantile(res$sample_diag_Sigma[,j],.025)&
-                            diag_Sigma[j]<quantile(res$sample_diag_Sigma[,j],.975))
+                   return(diag_Sigma[j]>quantile(res$sample_diag[,j],.025)&
+                            diag_Sigma[j]<quantile(res$sample_diag[,j],.975))
                  }),
-                 coverage_biw_diag_Sigma = sapply(1:p,FUN=function(j){
-                   return(diag_Sigma[j]>quantile(biw_diag_Sigma[,j],.025)&
-                            diag_Sigma[j]<quantile(biw_diag_Sigma[,j],.975))
+                 coverage_biw_diag = sapply(1:p,FUN=function(j){
+                   return(diag_Sigma[j]>quantile(biw_diag[,j],.025)&
+                            diag_Sigma[j]<quantile(biw_diag[,j],.975))
                  }),
                  coverage_Corr = sapply(1:n_pair,FUN=function(j){
-                   return(true_corr[j]>quantile(res$sample_Correlation[,j],.025)&
-                            true_corr[j]<quantile(res$sample_Correlation[,j],.975))
+                   return(true_corr[j]>quantile(res$sample_corr[,j],.025)&
+                            true_corr[j]<quantile(res$sample_corr[,j],.975))
                  }),
                  coverage_biw_Corr = sapply(1:n_pair,FUN=function(j){
-                   return(true_corr[j]>quantile(biw_Correlation[,j],.025)&
-                            true_corr[j]<quantile(biw_Correlation[,j],.975))
+                   return(true_corr[j]>quantile(biw_corr[,j],.025)&
+                            true_corr[j]<quantile(biw_corr[,j],.975))
                  }),
                  intlen_mu = sapply(1:p,FUN=function(j){
                    return(quantile(res$sample_mu[,j],.975)-
                             quantile(res$sample_mu[,j],.025))
                  }),
                  intlen_diag_Sigma = sapply(1:p,FUN=function(j){
-                   return(quantile(res$sample_diag_Sigma[,j],.975)-
-                            quantile(res$sample_diag_Sigma[,j],.025))
+                   return(quantile(res$sample_diag[,j],.975)-
+                            quantile(res$sample_diag[,j],.025))
                  }),
-                 intlen_biw_diag_Sigma = sapply(1:p,FUN=function(j){
-                   return(quantile(biw_diag_Sigma[,j],.975)-
-                            quantile(biw_diag_Sigma[,j],.025))
+                 intlen_biw_diag = sapply(1:p,FUN=function(j){
+                   return(quantile(biw_diag[,j],.975)-
+                            quantile(biw_diag[,j],.025))
                  }),
                  intlen_Corr = sapply(1:n_pair,FUN=function(j){
-                   return(quantile(res$sample_Correlation[,j],.975)-
-                            quantile(res$sample_Correlation[,j],.025))
+                   return(quantile(res$sample_corr[,j],.975)-
+                            quantile(res$sample_corr[,j],.025))
                  }),
                  intlen_biw_Corr = sapply(1:n_pair,FUN=function(j){
-                   return(quantile(biw_Correlation[,j],.975)-
-                            quantile(biw_Correlation[,j],.025))
+                   return(quantile(biw_corr[,j],.975)-
+                            quantile(biw_corr[,j],.025))
                  }))
   
   # damcmc
-  perf_damcmc = list(err_mu = apply(res_damcmc$sample_mu,2,mean)-mu,
-                     err_diag_Sigma = apply(res_damcmc$sample_diag_Sigma,2,mean)-diag_Sigma,
-                     err_cor = apply(res_damcmc$sample_Correlation,2,mean)-true_corr,
+  perf_damcmc = list(pred_accuracy = evalPredAccuracy(500, mu, Sigma, res_damcmc$sample_mu, 
+                                                      res_damcmc$sample_diag, res_damcmc$sample_corr),
+                     err_mu = apply(res_damcmc$sample_mu,2,mean)-mu,
+                     err_diag_Sigma = apply(res_damcmc$sample_diag,2,mean)-diag_Sigma,
+                     err_cor = apply(res_damcmc$sample_corr,2,mean)-true_corr,
                      ess_mu = effectiveSize(res_damcmc$sample_mu),
-                     ess_diag_Sigma = effectiveSize(res_damcmc$sample_diag_Sigma),
-                     ess_corr = effectiveSize(res_damcmc$sample_Correlation),
+                     ess_diag_Sigma = effectiveSize(res_damcmc$sample_diag),
+                     ess_corr = effectiveSize(res_damcmc$sample_corr),
                      coverage_mu = sapply(1:p,FUN=function(j){
                        return(mu[j]>quantile(res_damcmc$sample_mu[,j],.025)&
                                 mu[j]<quantile(res_damcmc$sample_mu[,j],.975))
                      }),
                      coverage_diag_Sigma = sapply(1:p,FUN=function(j){
-                       return(diag_Sigma[j]>quantile(res_damcmc$sample_diag_Sigma[,j],.025)&
-                                diag_Sigma[j]<quantile(res_damcmc$sample_diag_Sigma[,j],.975))
+                       return(diag_Sigma[j]>quantile(res_damcmc$sample_diag[,j],.025)&
+                                diag_Sigma[j]<quantile(res_damcmc$sample_diag[,j],.975))
                      }),
                      coverage_Corr = sapply(1:n_pair,FUN=function(j){
-                       return(true_corr[j]>quantile(res_damcmc$sample_Correlation[,j],.025)&
-                                true_corr[j]<quantile(res_damcmc$sample_Correlation[,j],.975))
+                       return(true_corr[j]>quantile(res_damcmc$sample_corr[,j],.025)&
+                                true_corr[j]<quantile(res_damcmc$sample_corr[,j],.975))
                      }),
                      intlen_mu = sapply(1:p,FUN=function(j){
                        return(quantile(res_damcmc$sample_mu[,j],.975)-
                                 quantile(res_damcmc$sample_mu[,j],.025))
                      }),
                      intlen_diag_Sigma = sapply(1:p,FUN=function(j){
-                       return(quantile(res_damcmc$sample_diag_Sigma[,j],.975)-
-                                quantile(res_damcmc$sample_diag_Sigma[,j],.025))
+                       return(quantile(res_damcmc$sample_diag[,j],.975)-
+                                quantile(res_damcmc$sample_diag[,j],.025))
                      }),
                      intlen_Corr = sapply(1:n_pair,FUN=function(j){
-                       return(quantile(res_damcmc$sample_Correlation[,j],.975)-
-                                quantile(res_damcmc$sample_Correlation[,j],.025))
+                       return(quantile(res_damcmc$sample_corr[,j],.975)-
+                                quantile(res_damcmc$sample_corr[,j],.025))
                      }))
   
-  return(list(perf_bm=sapply(perf_bm,FUN=function(x){as.vector(x)}), 
+  return(list(eigenvalues_corr=eigen(corr_mat,only.values=TRUE)$values,
+              perf_bm=sapply(perf_bm,FUN=function(x){as.vector(x)}), 
               perf_damcmc=sapply(perf_damcmc,FUN=function(x){as.vector(x)})))
 }
 

@@ -30,16 +30,16 @@ L_sigma ~ gamma(2, 2);
 
 corr_correct = stan_model(model_name = "correlation_correction", model_code = code_corr_correct)
 
-correctCorrelation <- function(sample_Correlation, ns) {
+correctCorrelation <- function(sample_corr, ns) {
   # TODO
   
-  p = dim(sample_Correlation)[1]
-  n = dim(sample_Correlation)[3]
+  p = dim(sample_corr)[1]
+  n = dim(sample_corr)[3]
   
-  complete_idx = complete.cases(matrix(c(sample_Correlation), n, p*p, byrow=TRUE))
+  complete_idx = complete.cases(matrix(c(sample_corr), n, p*p, byrow=TRUE))
   n_complete = length(complete_idx)
   
-  data = list(N=n_complete, K=p, K_choose_2=p*(p-1)/2, corr_mats=sample_Correlation[,,complete_idx])
+  data = list(N=n_complete, K=p, K_choose_2=p*(p-1)/2, corr_mats=sample_corr[,,complete_idx])
   fit <- sampling(corr_correct, data=data, chains=1, iter=ns*2, cores=1)
   return(apply(extract(fit, pars = 'Omega')$'Omega', c(2, 3), mean))
 }
@@ -50,11 +50,11 @@ fij <- function(nu, pm_ij, pm_ii, pm_jj, var_ij) {
   (sqrt(((nu+4)*pm_ij^2+(nu+2)*pm_ii*pm_jj)/nu/(nu+3))-sqrt(var_ij))^2
 }
 
-findBestIWishart <- function(sample_diag_Sigma, sample_Correlation, corrected_Correlation) {
+findBestIWishart <- function(sample_diag, sample_corr, corrected_Correlation) {
   # TODO
   
-  p = ncol(sample_diag_Sigma)
-  pm_diag_Sigma = apply(sample_diag_Sigma, 2, mean)
+  p = ncol(sample_diag)
+  pm_diag_Sigma = apply(sample_diag, 2, mean)
   corrected_Covariance = diag(sqrt(pm_diag_Sigma))%*%corrected_Correlation%*%diag(sqrt(pm_diag_Sigma))
   
   
@@ -64,7 +64,7 @@ findBestIWishart <- function(sample_diag_Sigma, sample_Correlation, corrected_Co
       for (y in x:p) {
         ret = ret + fij(nu, corrected_Covariance[x, y], corrected_Covariance[x, x], 
                         corrected_Covariance[y, y], 
-                        var(sample_Correlation[x,y,]*sqrt(sample_diag_Sigma[,x]*sample_diag_Sigma[,y]), na.rm=TRUE))
+                        var(sample_corr[x,y,]*sqrt(sample_diag[,x]*sample_diag[,y]), na.rm=TRUE))
       }
     }
     return(ret)
@@ -303,12 +303,12 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     cat("writing outputs...\n")
   }
   
-  sample_Correlation = matrix(unlist(tiles), ns, n_pair)
+  sample_corr = matrix(unlist(tiles), ns, n_pair)
   sample_mu = matrix(0, ns, p)
-  sample_diag_Sigma = matrix(0, ns, p)
+  sample_diag = matrix(0, ns, p)
   for (j in 1:p) {
     sample_mu[,j] = knots[[j]]$sample_mu
-    sample_diag_Sigma[,j] = knots[[j]]$sample_s
+    sample_diag[,j] = knots[[j]]$sample_s
   }
   
   # handle covariance matrix constraint
@@ -318,15 +318,15 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
   
   Corr_mats = array(0,c(p,p,ns))
   for (i in 1:ns) {
-    Corr_mats[,,i] = Vec2Corr(sample_Correlation[i,], p)
+    Corr_mats[,,i] = Vec2Corr(sample_corr[i,], p)
   }
   corrected_Correlation = correctCorrelation(Corr_mats, 1000)
-  best_iw_param = findBestIWishart(sample_diag_Sigma, Corr_mats, corrected_Correlation)
+  best_iw_param = findBestIWishart(sample_diag, Corr_mats, corrected_Correlation)
   
   return(list(model=model,
               sample_mu = sample_mu,
-              sample_diag_Sigma = sample_diag_Sigma,
-              sample_Correlation = sample_Correlation,
+              sample_diag = sample_diag,
+              sample_corr = sample_corr,
               best_iw_v=best_iw_param$v,
               best_iw_S=best_iw_param$S))
 }

@@ -337,8 +337,8 @@ sampleViaDAMCMC <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, paralle
   
   # outputs
   sample_mu = NULL
-  sample_diag_Sigma = NULL
-  sample_Correlation = NULL
+  sample_diag = NULL
+  sample_corr = NULL
   
   # helpers
   f <- function(x, y, mu, s) {
@@ -352,8 +352,8 @@ sampleViaDAMCMC <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, paralle
   for (iter in 1:ns) {
     # early stop
     if (!is.null(stop_time) & (proc.time()-start_time)[3]>stop_time) {
-      return(list(sample_mu=sample_mu, sample_diag_Sigma=sample_diag_Sigma,
-                  sample_Correlation=sample_Correlation, ealry_stop=TRUE))
+      return(list(sample_mu=sample_mu, sample_diag=sample_diag,
+                  sample_corr=sample_corr, ealry_stop=TRUE))
     }
     
     # print intermediate sampling info
@@ -390,13 +390,56 @@ sampleViaDAMCMC <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, paralle
     
     # prepare outputs
     sample_mu = rbind(sample_mu, c(mu))
-    sample_diag_Sigma = rbind(sample_diag_Sigma, diag(Sigma))
+    sample_diag = rbind(sample_diag, diag(Sigma))
     Corr = diag(sqrt(1/diag(Sigma)))%*%Sigma%*%diag(sqrt(1/diag(Sigma)))
-    sample_Correlation = rbind(sample_Correlation, Corr2Vec(Corr))
+    sample_corr = rbind(sample_corr, Corr2Vec(Corr))
   }
   
-  return(list(sample_mu=sample_mu, sample_diag_Sigma=sample_diag_Sigma,
-              sample_Correlation=sample_Correlation, ealry_stop=FALSE))
+  return(list(sample_mu=sample_mu, sample_diag=sample_diag,
+              sample_corr=sample_corr, ealry_stop=FALSE))
+}
+
+# Impute missing latent x
+imputeLatentX <- function(imcomplete_x, sample_mu, sample_diag, sample_corr) {
+  # TODO
+  
+  ns = nrow(sample_diag)
+  p = ncol(sample_diag)
+  pred_id = which(is.na(imcomplete_x))
+  preds = NULL
+  for (i in 1:ns) {
+    Sigma = diag(sqrt(sample_diag[i,]))%*%Vec2Corr(sample_corr[i,],p)%*%
+      diag(sqrt(sample_diag[i,]))
+    R = Sigma[pred_id,-pred_id] %*% solve(Sigma[-pred_id,-pred_id])
+    V = Sigma[pred_id,pred_id] - Sigma[pred_id,-pred_id]%*%
+      solve(Sigma[-pred_id,-pred_id])%*%Sigma[-pred_id,pred_id]
+    preds = c(preds, sqrt(V)*rnorm(1)+
+                sample_mu[i,pred_id]+sum(R*(imcomplete_x[-pred_id]-sample_mu[i,-pred_id])))
+  }
+  
+  return(list(mean=mean(preds),
+              sd=sd(preds),
+              interv=quantile(preds,c(.025,.975)),
+              preds=preds))
+}
+
+evalPredAccuracy <- function(nsim, mu, S, sample_mu, sample_diag, sample_corr) {
+  # TODO
+  
+  p = ncol(S)
+  errs = NULL
+  coverages = NULL
+  for (i in 1:nsim) {
+    imcomplete_x = rmvnorm(1,mu,S)
+    pred_id = sample(1:p,1)
+    targ = imcomplete_x[pred_id]
+    imcomplete_x[pred_id] = NA
+    pred = imputeLatentX(imcomplete_x, sample_mu, sample_diag, sample_corr)
+    errs = c(errs, pred$mean-targ)
+    coverages = c(coverages, targ>pred$interv[1]&targ<pred$interv[2])
+  }
+  
+  return(c(sqrt(mean(errs^2)), mean(coverages)))
 }
 
 # MCMC based on 2-d integration
