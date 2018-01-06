@@ -317,7 +317,7 @@ auxMatrix <- function(Sigma) {
   return (aux_mat)
 }
 
-sampleViaDAMCMC <- function(Y, ns, stop_time=NULL, verbose=FALSE, parallel=FALSE){
+sampleViaDAMCMC <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, parallel=FALSE){
   # TODO
   
   start_time = proc.time()
@@ -326,8 +326,13 @@ sampleViaDAMCMC <- function(Y, ns, stop_time=NULL, verbose=FALSE, parallel=FALSE
   p = ncol(Y)
   # initialization
   latent_x = matrix(0, n, p)
-  mu = rep(0, p)
-  Sigma = diag(1, p)
+  if (is.null(inits)) {
+    mu = rep(0, p)
+    Sigma = diag(1, p)
+  } else {
+    mu = inits$mu
+    Sigma = inits$Sigma
+  }
   Sinv = solve(Sigma)
   
   # outputs

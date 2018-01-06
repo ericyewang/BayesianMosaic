@@ -101,6 +101,8 @@ sampleLKJ <- function(n, p) {
 sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, ...) {
   # TODO
   
+  args = as.list(sys.call())
+  
   acr_target = 0.25 # target acceptance rate
   acr_tol = 0.05 # tolerance for acceptance rate
   dcf_pv = 0.9 # discount factor for adapting the proposal variance
@@ -112,8 +114,14 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, .
   compressed_y = compressCount(y)
   
   # initialization
+  # initialize mu to sample mean for numerical stability
+  if (model=="mvtPoisson") {
+    mu = log(mean(y)+1E-4)
+  } else if (model=="mvtBinomial") {
+    pr = mean(y)/args[[1]]$N + 1E-4
+    mu = log(pr/(1-pr))
+  }
   s = 1
-  mu = 0
   prv_llik = -Inf
   historical_acr = 1
   
