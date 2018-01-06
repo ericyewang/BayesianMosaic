@@ -278,8 +278,8 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     s = pairs[k, 1]
     t = pairs[k, 2]
     y = cbind(Y[,s], Y[,t])
-    sample_mu = rbind(knots[[k]]$sample_mu, knots[[t]]$sample_mu)
-    sample_s = rbind(knots[[k]]$sample_s, knots[[t]]$sample_s)
+    sample_mu = rbind(knots[[s]]$sample_mu, knots[[t]]$sample_mu)
+    sample_s = rbind(knots[[s]]$sample_s, knots[[t]]$sample_s)
     if (model=="mvtPoisson") {
       return( sampleTile(y = y, sample_mu = sample_mu, sample_s = sample_s, 
                          model="mvtPoisson", verbose = verb) )
