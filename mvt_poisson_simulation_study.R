@@ -9,13 +9,13 @@ suppressMessages(require(coda))
 source("~/Documents/yw_git/bayesian_mosaic/basian_mosaic_functions.R")
 
 # helper
-experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns, 
+experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns, 
                            njump, parallel=FALSE) {
   # TODO
   
   # 1. simulate dataset
   cat("Simulating data...\n")
-  Sigma = diag(sqrt(diag_Sigma)) %*% corr_mat %*% diag(sqrt(diag_Sigma))
+  Sigma = diag(sqrt(diag)) %*% corr_mat %*% diag(sqrt(diag))
   x = rmvnorm(n, mu, Sigma)
   Y = matrix(rpois(p * n, exp(c(x))), n, p)
   
@@ -52,30 +52,30 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
                  pred_accuracy = evalPredAccuracy(500, mu, Sigma, res$sample_mu, 
                                                   biw_diag, biw_corr),
                  err_mu = apply(res$sample_mu,2,mean)-mu,
-                 err_diag_Sigma = apply(res$sample_diag,2,mean)-diag_Sigma,
-                 err_biw_diag = apply(biw_diag,2,mean)-diag_Sigma,
-                 err_Corr = apply(res$sample_corr,2,mean)-true_corr,
-                 err_biw_Corr = apply(biw_corr,2,mean)-true_corr,
+                 err_diag = apply(res$sample_diag,2,mean)-diag,
+                 err_biw_diag = apply(biw_diag,2,mean)-diag,
+                 err_corr = apply(res$sample_corr,2,mean)-true_corr,
+                 err_biw_corr = apply(biw_corr,2,mean)-true_corr,
                  ess_mu = effectiveSize(res$sample_mu),
-                 ess_diag_Sigma = effectiveSize(res$sample_diag),
+                 ess_diag = effectiveSize(res$sample_diag),
                  ess_corr = effectiveSize(res$sample_corr),
                  coverage_mu = sapply(1:p,FUN=function(j){
                    return(mu[j]>quantile(res$sample_mu[,j],.025)&
                             mu[j]<quantile(res$sample_mu[,j],.975))
                  }),
-                 coverage_diag_Sigma = sapply(1:p,FUN=function(j){
-                   return(diag_Sigma[j]>quantile(res$sample_diag[,j],.025)&
-                            diag_Sigma[j]<quantile(res$sample_diag[,j],.975))
+                 coverage_diag = sapply(1:p,FUN=function(j){
+                   return(diag[j]>quantile(res$sample_diag[,j],.025)&
+                            diag[j]<quantile(res$sample_diag[,j],.975))
                  }),
                  coverage_biw_diag = sapply(1:p,FUN=function(j){
-                   return(diag_Sigma[j]>quantile(biw_diag[,j],.025)&
-                            diag_Sigma[j]<quantile(biw_diag[,j],.975))
+                   return(diag[j]>quantile(biw_diag[,j],.025)&
+                            diag[j]<quantile(biw_diag[,j],.975))
                  }),
-                 coverage_Corr = sapply(1:n_pair,FUN=function(j){
+                 coverage_corr = sapply(1:n_pair,FUN=function(j){
                    return(true_corr[j]>quantile(res$sample_corr[,j],.025)&
                             true_corr[j]<quantile(res$sample_corr[,j],.975))
                  }),
-                 coverage_biw_Corr = sapply(1:n_pair,FUN=function(j){
+                 coverage_biw_corr = sapply(1:n_pair,FUN=function(j){
                    return(true_corr[j]>quantile(biw_corr[,j],.025)&
                             true_corr[j]<quantile(biw_corr[,j],.975))
                  }),
@@ -83,7 +83,7 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
                    return(quantile(res$sample_mu[,j],.975)-
                             quantile(res$sample_mu[,j],.025))
                  }),
-                 intlen_diag_Sigma = sapply(1:p,FUN=function(j){
+                 intlen_diag = sapply(1:p,FUN=function(j){
                    return(quantile(res$sample_diag[,j],.975)-
                             quantile(res$sample_diag[,j],.025))
                  }),
@@ -91,11 +91,11 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
                    return(quantile(biw_diag[,j],.975)-
                             quantile(biw_diag[,j],.025))
                  }),
-                 intlen_Corr = sapply(1:n_pair,FUN=function(j){
+                 intlen_corr = sapply(1:n_pair,FUN=function(j){
                    return(quantile(res$sample_corr[,j],.975)-
                             quantile(res$sample_corr[,j],.025))
                  }),
-                 intlen_biw_Corr = sapply(1:n_pair,FUN=function(j){
+                 intlen_biw_corr = sapply(1:n_pair,FUN=function(j){
                    return(quantile(biw_corr[,j],.975)-
                             quantile(biw_corr[,j],.025))
                  }))
@@ -104,20 +104,20 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
   perf_damcmc = list(pred_accuracy = evalPredAccuracy(500, mu, Sigma, res_damcmc$sample_mu, 
                                                       res_damcmc$sample_diag, res_damcmc$sample_corr),
                      err_mu = apply(res_damcmc$sample_mu,2,mean)-mu,
-                     err_diag_Sigma = apply(res_damcmc$sample_diag,2,mean)-diag_Sigma,
-                     err_cor = apply(res_damcmc$sample_corr,2,mean)-true_corr,
+                     err_diag = apply(res_damcmc$sample_diag,2,mean)-diag,
+                     err_corr = apply(res_damcmc$sample_corr,2,mean)-true_corr,
                      ess_mu = effectiveSize(res_damcmc$sample_mu),
-                     ess_diag_Sigma = effectiveSize(res_damcmc$sample_diag),
+                     ess_diag = effectiveSize(res_damcmc$sample_diag),
                      ess_corr = effectiveSize(res_damcmc$sample_corr),
                      coverage_mu = sapply(1:p,FUN=function(j){
                        return(mu[j]>quantile(res_damcmc$sample_mu[,j],.025)&
                                 mu[j]<quantile(res_damcmc$sample_mu[,j],.975))
                      }),
-                     coverage_diag_Sigma = sapply(1:p,FUN=function(j){
-                       return(diag_Sigma[j]>quantile(res_damcmc$sample_diag[,j],.025)&
-                                diag_Sigma[j]<quantile(res_damcmc$sample_diag[,j],.975))
+                     coverage_diag = sapply(1:p,FUN=function(j){
+                       return(diag[j]>quantile(res_damcmc$sample_diag[,j],.025)&
+                                diag[j]<quantile(res_damcmc$sample_diag[,j],.975))
                      }),
-                     coverage_Corr = sapply(1:n_pair,FUN=function(j){
+                     coverage_corr = sapply(1:n_pair,FUN=function(j){
                        return(true_corr[j]>quantile(res_damcmc$sample_corr[,j],.025)&
                                 true_corr[j]<quantile(res_damcmc$sample_corr[,j],.975))
                      }),
@@ -125,11 +125,11 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
                        return(quantile(res_damcmc$sample_mu[,j],.975)-
                                 quantile(res_damcmc$sample_mu[,j],.025))
                      }),
-                     intlen_diag_Sigma = sapply(1:p,FUN=function(j){
+                     intlen_diag = sapply(1:p,FUN=function(j){
                        return(quantile(res_damcmc$sample_diag[,j],.975)-
                                 quantile(res_damcmc$sample_diag[,j],.025))
                      }),
-                     intlen_Corr = sapply(1:n_pair,FUN=function(j){
+                     intlen_corr = sapply(1:n_pair,FUN=function(j){
                        return(quantile(res_damcmc$sample_corr[,j],.975)-
                                 quantile(res_damcmc$sample_corr[,j],.025))
                      }))
@@ -139,18 +139,29 @@ experimentOnce <- function(n, p, mu, diag_Sigma, corr_mat, nb, ns,
               perf_damcmc=sapply(perf_damcmc,FUN=function(x){as.vector(x)})))
 }
 
-# simulate a bag of correlation matrix
-n=10000
+# simulation study
+mu0 = -4
+diag0 = 0.5
 p = 3
-corr_mats = sampleLKJ(1000, p)
-nb=10
-ns=10
-njump=1
-parallel=TRUE
-corr_mat = corr_mats[1,,]
-mu = -2 + rnorm(p)
-diag_Sigma = 0.5 + 0.5 * rnorm(p)^2
-res = experimentOnce(n, p, mu, diag_Sigma, corr_mat, nb, ns, njump, parallel=parallel)
+n_experiment = 100
+
+n = 10000
+nb = 5000
+ns = 500
+njump = 30
+parallel = TRUE
+
+perfs = list()
+corr_mats = sampleLKJ(1000, p) # simulate a bag of correlation matrix
+corr_ids = sample(1:1000, n_experiment, replace=FALSE)
+for (iter in 1:n_experiment) {
+  cat("experiment ", iter, "\n")
+  corr_mat = corr_mats[corr_ids[iter],,]
+  mu = mu0+runif(p)
+  diag = diag0+0.5*runif(p)
+  perfs[[iter]] = experimentOnce(n, p, mu, diag, corr_mat, nb, ns, 
+                                 njump, parallel=parallel)
+}
 
 # # sparse Poisson counts
 # n_experiment = 100
