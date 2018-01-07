@@ -3,7 +3,7 @@
 # Last Updated on Dec 31, 2017
 
 suppressMessages(require(rstan))
-source("~/Documents/yw_git/bayesian_mosaic/helpers.R")
+source("~/Documents/yw_git/bayesian_mosaic/samplers.R")
 
 # Covariance Matrix Enforcer----
 code_corr_correct = '
@@ -98,7 +98,7 @@ sampleLKJ <- function(n, p) {
 }
 
 # Bayesian Mosaic
-sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, ...) {
+sampleKnot <- function(y, nb, ns, njump, proposal_var, genIndividualLik, verbose = FALSE, ...) {
   # TODO
   
   args = as.list(sys.call())
@@ -115,9 +115,9 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, .
   
   # initialization
   # initialize mu to sample mean for numerical stability
-  if (model=="mvtPoisson") {
+  if (genIndividualLik==genLikPoissonLogNormal) {
     mu = log(mean(y)+1E-4)
-  } else if (model=="mvtBinomial") {
+  } else if (genIndividualLik==genLikBinomialLogNormal) {
     pr = mean(y)/args[[1]]$N + 1E-4
     mu = log(pr/(1-pr))
   }
@@ -149,13 +149,8 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, model, verbose = FALSE, .
     new_mu = mu + sqrt(proposal_var_mu) * rnorm(1)
     new_s = s + sqrt(proposal_var_s) * rnorm(1)
     if (new_s > 0) {
-      if (model == "mvtPoisson") {
-        new_llik = genLogLikelihood(compressed_y = compressed_y, likelihood = "PoissonLogNormal", 
-                                    mu = new_mu, log = TRUE, v = new_s)
-      } else if (model == "mvtBinomial") {
-        new_llik = genLogLikelihood(compressed_y = compressed_y, likelihood = "BinomialLogNormal", 
-                                    mu = new_mu, log = TRUE, v = new_s, ...)
-      }
+      new_llik = genLLik(compressed_y=compressed_y, genIndividualLik=genIndividualLik,
+                         mu = new_mu, v = new_s, ...)
       new_lpost = new_llik + dgamma(1 / new_s, shape = 2, rate = 2, log = TRUE)
       prv_lpost = prv_llik + dgamma(1 / s, shape = 2, rate = 2, log = TRUE)
       acr = min(exp(new_lpost - prv_lpost), 1) # symmetric proposal
@@ -228,8 +223,13 @@ sampleTile <- function(y, sample_mu, sample_s, model, verbose = FALSE, ...) {
 }
 
 bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model, 
-                           verbose=0, parallel=FALSE, Ns = NULL) {
+                           verbose=0, parallel=FALSE, ...) {
   # TODO
+  
+  args = as.list(sys.call())
+  p = ncol(Y)
+  genIndividualLik1D = getFcn(model, "IndividualLik1D")
+  genIndividualLik2D = getFcn(model, "IndividualLik2D")
   
   # posterior knots
   verb = FALSE
@@ -240,18 +240,11 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     }
   }
   
-  p = ncol(Y)
-  
   genSampleKnot <- function(k) {
-    if (model=="mvtPoisson") {
-      return( sampleKnot(y = Y[,k], nb = nb, ns = ns, njump = njump, 
-                         proposal_var = proposal_var, model="mvtPoisson", verbose = verb) )
-    } else if (model=="mvtBinomial") {
-      return( sampleKnot(y = Y[,k], nb = nb, ns = ns, njump = njump, 
-                         proposal_var = proposal_var, model="mvtBinomial", verbose = verb, N = Ns[k]) )
-    }
+    if (is.null(Ns)) {N=NULL} else {N=Ns[k]}
+    sampleKnot(y=Y[,k], nb=nb, ns=ns, njump=njump,proposal_var=proposal_var, 
+               genIndividualLik=genIndividualLik1D, verbose = verb, N=N)
   }
-  
   if (parallel) {
     knots = mclapply(1:p, FUN=genSampleKnot, mc.cores=ncores)
   } else {
@@ -318,7 +311,7 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
   
   Corr_mats = array(0,c(p,p,ns))
   for (i in 1:ns) {
-    Corr_mats[,,i] = Vec2Corr(sample_corr[i,], p)
+    Corr_mats[,,i] = vec2Corr(sample_corr[i,], p)
   }
   corrected_Correlation = correctCorrelation(Corr_mats, 1000)
   best_iw_param = findBestIWishart(sample_diag, Corr_mats, corrected_Correlation)

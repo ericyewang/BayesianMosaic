@@ -35,7 +35,7 @@ experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns,
   # 4. gather performance info
   cat("Evaluating Performance...\n")
   n_pair = ncol(res$sample_corr)
-  true_corr = Corr2Vec(corr_mat)
+  true_corr = lowerOffDiagonal(corr_mat)
   
   # bayesian mosaic
   biw_diag = NULL
@@ -44,10 +44,10 @@ experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns,
     tmp = riwish(res$best_iw_v, res$best_iw_S)
     tmp_corr = diag(sqrt(1/diag(tmp)))%*%tmp%*%diag(sqrt(1/diag(tmp)))
     biw_diag = rbind(biw_diag, diag(tmp))
-    biw_corr = rbind(biw_corr, Corr2Vec(tmp_corr))
+    biw_corr = rbind(biw_corr, lowerOffDiagonal(tmp_corr))
   }
   perf_bm = list(perc_psd = mean(apply(res$sample_corr,1,FUN=function(x){
-                   eigen(Vec2Corr(x,p),only.values=TRUE)$values[p]>0
+                   eigen(vec2Corr(x,p),only.values=TRUE)$values[p]>0
                  })), # percentage of posterior correlation matrix that satisfies psd
                  pred_accuracy = evalPredAccuracy(500, mu, Sigma, res$sample_mu, 
                                                   biw_diag, biw_corr),
