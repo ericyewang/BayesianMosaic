@@ -1,6 +1,6 @@
 # Basic Helper Functions
 # Version 1.1
-# Last Updated on Jan 7, 2017
+# Last Updated on Jan 10, 2017
 
 # dependencies
 suppressMessages(require(compiler))
@@ -41,6 +41,7 @@ lowerOffDiagonal <- function(S) {
   }
   return(ret)
 }
+lowerOffDiagonal <- cmpfun(lowerOffDiagonal)
 
 vec2Corr <- function(rhos, p) {
   # Convert a vector into a correlation matrix.
@@ -63,6 +64,7 @@ vec2Corr <- function(rhos, p) {
   }
   return(ret)
 }
+vec2Corr <- cmpfun(vec2Corr)
 
 genLLik <- function(compressed_y, genIndividualLik, ...){
   # Compute the data log-likelihood.

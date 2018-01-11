@@ -1,9 +1,9 @@
 # Helper Functions for Samplers
 # Version 1.1
-# Last Updated on Jan 7, 2018
+# Last Updated on Jan 10, 2018
 
 # dependencies
-source("~/Documents/yw_git/bayesian_mosaic/basic_helpers.R")
+source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")
 suppressMessages(require(mvtnorm))
 suppressMessages(require(pracma))
 suppressMessages(require(MCMCpack))
@@ -20,22 +20,20 @@ genLikPoissonLogNormal <- function(y, mu, v){
   #   v: variance
   
   integrand <- function(x){
-    return( exp(y * x - lfactorial(y) - (x - mu)^2 / 2 / v - exp(x)) * (2 * pi * v)^-.5 )
+    return(dpois(y, exp(x))*dnorm(x,mean=mu,sd=sqrt(v)))
   }
-  integrate(integrand, lower = min(log(y + 0.1), mu) - 4 * sqrt(v), 
-            upper = max(log(y + 0.1), mu) + 4 * sqrt(v), stop.on.error=FALSE)$value
+  integrate(integrand, lower = min(log(y+0.1), mu)-4*sqrt(v), 
+            upper = max(log(y+0.1), mu)+4*sqrt(v), stop.on.error=FALSE)$value
 }
 
-genLikPoissonLogGaussian2D <- function(y, mu, Sigma, Sinv){
+genLikPoissonLogGaussian2D <- function(y, mu, upper_tri){
   # compute the likelihood function value for a individual observation from a multivariate 
-  # Poisson log-Gaussian distribution via numerical integration
+  # Poisson log-Gaussian distribution via numerical integration.
   # args:
-  #   y: observation
-  #   mu: mean
-  #   Sigma: covariance matrix
-  #   Sinv: precision matrix (avoid redundant matrix inversion)
+  #   y: observation.
+  #   mu: mean.
+  #   upper_tri: the upper triangular Cholesky factorization of the covariance matrix.
   
-  upper_tri = chol(Sigma)
   integrand <- function(z1, z2) {
     # change of variables
     x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
@@ -59,16 +57,21 @@ genLikBinomialLogNormal <- function(y, N, mu, v){
   #   v: variance
   
   integrand <- function(x){
-    return( exp(y * x - (x - mu)^2 / 2 / v) * (2 * pi * v)^-.5 / (1 + exp(x))^N )
+    return(dbinom(y, N, 1/(1+exp(-x)))*dnorm(x,mean=mu,sd=sqrt(v)))
   }
-  integrate(integrand, lower = min(log((y + 0.1) / N), mu) - 4 * sqrt(v), 
-            upper = max(log((y + 0.1) / N), mu) + 4 * sqrt(v), stop.on.error=FALSE)$value
+  integrate(integrand, lower = min(log((y+0.1)/N), mu)-4*sqrt(v), 
+            upper = max(log((y+0.1)/N), mu)+4*sqrt(v), stop.on.error=FALSE)$value
 }
 
-genLikBinomialLogGaussian2D <- function(y, Ns, mu, Sigma, Sinv){
-  # TODO
+genLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri){
+  # compute the likelihood function value for a individual observation from a multivariate 
+  # binomial log-Gaussian distribution via numerical integration.
+  # args:
+  #   y: (vector) observations.
+  #   Ns: (vector) number of trials.
+  #   mu: mean.
+  #   upper_tri: the upper triangular Cholesky factorization of the covariance matrix.
   
-  upper_tri = chol(Sigma)
   integrand <- function(z1, z2) {
     x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
     x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
@@ -97,17 +100,15 @@ genGroupLLik <- function(group_compressed_y, genIndividualLik, group_mus, ...){
 genGroupLLik <- cmpfun(genGroupLLik)
 
 # gradient w.r.t. rho of the likelihood functions via numerical integration, 2-d
-genLikPoissonLogGaussian2DGradient <- function(y, mu, Sigma, Sinv){
+genLikPoissonLogGaussian2DGradient <- function(y, mu, v, upper_tri, rho){
   # likelihood function value for a individual observation via numerical integration
   # args:
-  #   y: observation
-  #   mu: mean
-  #   Sigma: covariance matrix
-  #   Sinv: precision matrix
+  #   y: observation.
+  #   mu: (vector) mean.
+  #   v: (vector) diagonal elements of the covariance matrix.
+  #   upper_tri: the upper triangular Cholesky factorization of the covariance matrix.
+  #   rho: correlation.
   
-  upper_tri = chol(Sigma)
-  v = diag(Sigma)
-  rho = Sigma[1, 2] / sqrt(prod(v))
   integrand <- function(z1, z2) {
     x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
     x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
@@ -120,12 +121,16 @@ genLikPoissonLogGaussian2DGradient <- function(y, mu, Sigma, Sinv){
   quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
-genLikBinomialLogGaussian2DGradient <- function(y, Ns, mu, Sigma, Sinv){
-  # TODO
+genLikBinomialLogGaussian2DGradient <- function(y, Ns, mu, v, upper_tri, rho){
+  # likelihood function value for a individual observation via numerical integration
+  # args:
+  #   y: observation.
+  #   Ns: (vector) number of trials.
+  #   mu: (vector) mean.
+  #   v: (vector) diagonal elements of the covariance matrix.
+  #   upper_tri: the upper triangular Cholesky factorization of the covariance matrix.
+  #   rho: correlation.
   
-  upper_tri = chol(Sigma)
-  v = diag(Sigma)
-  rho = Sigma[1, 2] / sqrt(prod(v))
   integrand <- function(z1, z2) {
     x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
     x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
@@ -200,10 +205,10 @@ sampleLaplaceApprox <- function(compressed_y, model, mu, vvars, ...) {
   
   llikGradient <- function(rho) {
     Sigma = diag(sqrt(vvars)) %*% matrix(c(1, rho, rho, 1), 2, 2) %*% diag(sqrt(vvars))
-    Sinv = solve(Sigma)
+    upper_tri = chol(Sigma)
     return(-genLLikGrad(compressed_y=compressed_y, genIndividualLik=genIndividualLik2D, 
                         genIndividualLikGrad=genIndividualLikGrad2D, mu=mu, 
-                        Sigma=Sigma, Sinv=Sinv) - 1/(1+rho)+1/(1-rho))
+                        v=vvars, upper_tri=upper_tri, rho=rho)-1/(1+rho)+1/(1-rho))
   }
   
   # maximize the log-likelihood

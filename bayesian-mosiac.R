@@ -3,7 +3,7 @@
 # Last Updated on Dec 31, 2017
 
 suppressMessages(require(rstan))
-source("~/Documents/yw_git/bayesian_mosaic/samplers.R")
+source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
 
 # Covariance Matrix Enforcer----
 code_corr_correct = '

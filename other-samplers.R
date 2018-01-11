@@ -3,7 +3,7 @@
 # Last Updated on Jan 7, 2018
 
 # dependencies
-source("~/Documents/yw_git/bayesian_mosaic/sampler_helpers.R")
+source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
 suppressMessages(require(ars))
 
 sampleViaDAMCMC <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, parallel=FALSE){
