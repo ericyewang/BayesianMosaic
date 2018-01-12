@@ -109,5 +109,15 @@ forcePSD <- function(S) {
   
   r <- eigen(S)
   D <- diag(as.numeric(r$values>0)*r$values)
-  return(r$vectors%*%D%*%solve(r$vectors))
+  return(list(is_psd = all(r$values>0),
+              C = r$vectors%*%D%*%solve(r$vectors)))
+}
+
+Cov2CorrMat <- function(S) {
+  # Convert a covariance matrix to a correlation matrix.
+  # Args:
+  #   S: p.s.d. matrix.
+  
+  d = diag(S)
+  return(diag(1/sqrt(d))%*%S%*%diag(1/sqrt(d)))
 }

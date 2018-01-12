@@ -20,9 +20,16 @@ if (!all(c(vec2Corr(0.9,2))==c(1,0.9,0.9,1))) {
 }
 
 # test forcePSD
-if (!all(abs(c(forcePSD(matrix(c(1,.9,.9,1),2,2)))-c(1,.9,.9,1))<1E-8)) {
+res = forcePSD(matrix(c(1,.9,.9,1),2,2))
+if (res$is_psd & !all(abs(c(res$C)-c(1,.9,.9,1))<1E-8)) {
   cat("forcePSD failed unit test!\n")
 }
-if (!all(abs(c(forcePSD(matrix(c(1,1.2,1.2,1),2,2)))-c(1.1,1.1,1.1,1.1))<1E-8)) {
+res = forcePSD(matrix(c(1,1.2,1.2,1),2,2))
+if (!res$is_psd & !all(abs(c(res$C)-c(1.1,1.1,1.1,1.1))<1E-8)) {
   cat("forcePSD failed unit test!\n")
+}
+
+# test Cov2CorrMat
+if (!all(abs(c(Cov2CorrMat(matrix(c(2,1.8,1.8,2),2,2)))-c(1,0.9,0.9,1))<1E-8)) {
+  cat("Cov2CorrMat failed unit test!\n")
 }

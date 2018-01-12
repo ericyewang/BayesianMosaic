@@ -11,13 +11,13 @@ suppressMessages(require(parallel))
 ncores = detectCores() - 1
 
 # likelihood functions via numerical integration, 1-d or 2-d
-genLikPoissonLogNormal <- function(y, mu, v){
+genLikPoissonLogNormal <- function(y, mu, v, ...){
   # compute the likelihood function value for a individual observation from a
-  # Poisson log-normal distribution via numerical integration
+  # Poisson log-normal distribution via numerical integration.
   # args:
-  #   y: observation
-  #   mu: mean
-  #   v: variance
+  #   y: observation.
+  #   mu: mean.
+  #   v: variance.
   
   integrand <- function(x){
     return(dpois(y, exp(x))*dnorm(x,mean=mu,sd=sqrt(v)))
@@ -26,7 +26,7 @@ genLikPoissonLogNormal <- function(y, mu, v){
             upper = max(log(y+0.1), mu)+4*sqrt(v), stop.on.error=FALSE)$value
 }
 
-genLikPoissonLogGaussian2D <- function(y, mu, upper_tri){
+genLikPoissonLogGaussian2D <- function(y, mu, upper_tri, ...){
   # compute the likelihood function value for a individual observation from a multivariate 
   # Poisson log-Gaussian distribution via numerical integration.
   # args:
@@ -47,7 +47,7 @@ genLikPoissonLogGaussian2D <- function(y, mu, upper_tri){
   quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
-genLikBinomialLogNormal <- function(y, N, mu, v){
+genLikBinomialLogNormal <- function(y, N, mu, v, ...){
   # compute the likelihood function value for a individual observation from a
   # Poisson log-normal distribution via numerical integration
   # args:
@@ -63,7 +63,7 @@ genLikBinomialLogNormal <- function(y, N, mu, v){
             upper = max(log((y+0.1)/N), mu)+4*sqrt(v), stop.on.error=FALSE)$value
 }
 
-genLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri){
+genLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri, ...){
   # compute the likelihood function value for a individual observation from a multivariate 
   # binomial log-Gaussian distribution via numerical integration.
   # args:
@@ -100,7 +100,7 @@ genGroupLLik <- function(group_compressed_y, genIndividualLik, group_mus, ...){
 genGroupLLik <- cmpfun(genGroupLLik)
 
 # gradient w.r.t. rho of the likelihood functions via numerical integration, 2-d
-genLikPoissonLogGaussian2DGradient <- function(y, mu, v, upper_tri, rho){
+genLikPoissonLogGaussian2DGradient <- function(y, mu, v, upper_tri, rho, ...){
   # likelihood function value for a individual observation via numerical integration
   # args:
   #   y: observation.
@@ -121,7 +121,7 @@ genLikPoissonLogGaussian2DGradient <- function(y, mu, v, upper_tri, rho){
   quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
-genLikBinomialLogGaussian2DGradient <- function(y, Ns, mu, v, upper_tri, rho){
+genLikBinomialLogGaussian2DGradient <- function(y, Ns, mu, v, upper_tri, rho, ...){
   # likelihood function value for a individual observation via numerical integration
   # args:
   #   y: observation.
@@ -257,6 +257,11 @@ imputeLatentX <- function(imcomplete_x, sample_mu, sample_diag, sample_corr) {
     R = Sigma[pred_id,-pred_id] %*% solve(Sigma[-pred_id,-pred_id])
     V = Sigma[pred_id,pred_id] - Sigma[pred_id,-pred_id]%*%
       solve(Sigma[-pred_id,-pred_id])%*%Sigma[-pred_id,pred_id]
+    if (V<0 & V>-1E-8){
+      V = 0 # handle numerical error when Sigma is rank deficit
+    } else if (V<=-1E-8) {
+      stop("conditional variance negative!")
+    }
     preds = c(preds, sqrt(V)*rnorm(1)+
                 sample_mu[i,pred_id]+sum(R*(imcomplete_x[-pred_id]-sample_mu[i,-pred_id])))
   }
