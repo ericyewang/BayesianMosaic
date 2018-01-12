@@ -99,3 +99,15 @@ genLLikGrad <- function(compressed_y, genIndividualLik, genIndividualLikGrad, ..
   return(ret)
 }
 genLLikGrad <- cmpfun(genLLikGrad)
+
+forcePSD <- function(S) {
+  # Force a matrix to be positive semi-definite by truncating the negative 
+  # singular values to zero. This is the best positive semi-definite in a 
+  # spectrum norm sense.
+  # Args:
+  #   S: matrix
+  
+  r <- eigen(S)
+  D <- diag(as.numeric(r$values>0)*r$values)
+  return(r$vectors%*%D%*%solve(r$vectors))
+}
