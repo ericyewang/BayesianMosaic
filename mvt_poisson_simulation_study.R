@@ -6,8 +6,10 @@ rm(list = ls())
 
 # dependencies
 suppressMessages(require(coda))
-source("~/Documents/yw_git/bayesian_mosaic/bayesian-mosiac.R")
-source("~/Documents/yw_git/bayesian_mosaic/other-samplers.R")
+# source("~/Documents/yw_git/bayesian_mosaic/bayesian-mosiac.R")
+# source("~/Documents/yw_git/bayesian_mosaic/other-samplers.R")
+source("/home/collabor/yw104/BayesianMosaic/bayesian-mosiac.R")
+source("/home/collabor/yw104/BayesianMosaic/other-samplers.R")
 
 # helper
 experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns, 
@@ -24,14 +26,14 @@ experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns,
   cat("Bayesian Mosaic...\n")
   ct_bm = proc.time()
   res = bayesianMosaic(Y, nb, ns, njump, proposal_var=0.01, model="mvtPoisson", 
-                       verbose=2, parallel=parallel)
+                       verbose=0, parallel=parallel)
   ct_bm = proc.time() - ct_bm
   
   # 3. fit a DAMCMC using the same amount of time
   cat("Data-augmented MCMC...\n")
   ns_damcmc = 10000
   res_damcmc = sampleViaDAMCMC(Y, ns_damcmc, list(mu=mu,Sigma=Sigma), 
-                               ct_bm[3], verbose=TRUE, parallel=parallel)
+                               ct_bm[3], verbose=FALSE, parallel=parallel)
   
   # 4. gather performance info
   cat("Evaluating Performance...\n")
@@ -138,9 +140,9 @@ p = 3
 n_experiment = 100
 
 n = 10000
-nb = 1000
-ns = 100
-njump = 10
+nb = 50000
+ns = 500
+njump = 30
 parallel = TRUE
 
 perfs = list()
