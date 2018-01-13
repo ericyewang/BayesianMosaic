@@ -1,81 +1,10 @@
 # Bayesian Mosaic
 # Version 1.1
-# Last Updated on Dec 31, 2017
+# Last Updated on Jan 13, 2018
 
 suppressMessages(require(rstan))
-# source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
-source("/home/collabor/yw104/BayesianMosaic/sampler-helpers.R")
-
-# # Covariance Matrix Enforcer----
-# code_corr_correct = '
-# data {
-# int<lower=0> N; // number of draws from Bayesian mosaic
-# int<lower=2> K; // number of species
-# int<lower=2> K_choose_2;
-# vector[N] corr_mats[K, K]; // predictor matrix
-# }
-# parameters {
-# corr_matrix[K] Omega; // correlation matrix
-# vector<lower=0>[K_choose_2] L_sigma;
-# }
-# model {
-# for (x in 1:(K - 1)) {
-# for (y in (x + 1):K) {
-# corr_mats[x, y] ~ normal(Omega[x, y], sqrt(L_sigma[(K - x + 1 + K - 1) * (x - 1) / 2 + y - x]));
-# }
-# }
-# Omega ~ lkj_corr(2.0); // regularize to unit correlation
-# L_sigma ~ gamma(2, 2);
-# }
-# '
-# 
-# corr_correct = stan_model(model_name = "correlation_correction", model_code = code_corr_correct)
-# 
-# correctCorrelation <- function(sample_corr, ns) {
-#   # TODO
-#   
-#   p = dim(sample_corr)[1]
-#   n = dim(sample_corr)[3]
-#   
-#   complete_idx = complete.cases(matrix(c(sample_corr), n, p*p, byrow=TRUE))
-#   n_complete = length(complete_idx)
-#   
-#   data = list(N=n_complete, K=p, K_choose_2=p*(p-1)/2, corr_mats=sample_corr[,,complete_idx])
-#   fit <- sampling(corr_correct, data=data, chains=1, iter=ns*2, cores=1)
-#   return(apply(extract(fit, pars = 'Omega')$'Omega', c(2, 3), mean))
-# }
-# 
-# fij <- function(nu, pm_ij, pm_ii, pm_jj, var_ij) {
-#   #TODO
-#   
-#   (sqrt(((nu+4)*pm_ij^2+(nu+2)*pm_ii*pm_jj)/nu/(nu+3))-sqrt(var_ij))^2
-# }
-# 
-# findBestIWishart <- function(sample_diag, sample_corr, corrected_Correlation) {
-#   # TODO
-#   
-#   p = ncol(sample_diag)
-#   pm_diag_Sigma = apply(sample_diag, 2, mean)
-#   corrected_Covariance = diag(sqrt(pm_diag_Sigma))%*%corrected_Correlation%*%diag(sqrt(pm_diag_Sigma))
-#   
-#   
-#   fn <- function(nu) {
-#     ret = 0
-#     for (x in 1:p) {
-#       for (y in x:p) {
-#         ret = ret + fij(nu, corrected_Covariance[x, y], corrected_Covariance[x, x], 
-#                         corrected_Covariance[y, y], 
-#                         var(sample_corr[x,y,]*sqrt(sample_diag[,x]*sample_diag[,y]), na.rm=TRUE))
-#       }
-#     }
-#     return(ret)
-#   }
-#   
-#   nu_optim = optim(par = 1, fn = fn, method = "L-BFGS-B", lower = 0)$par
-#   
-#   return(list(v=nu_optim+p+1, 
-#               S=corrected_Covariance*nu_optim))
-# }
+source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
+# source("/home/collabor/yw104/BayesianMosaic/sampler-helpers.R")
 
 # LKJ Sampler----
 code_lkj = '
@@ -311,13 +240,6 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     cat("enforcing constraints...\n")
   }
   
-  # Corr_mats = array(0,c(p,p,ns))
-  # for (i in 1:ns) {
-  #   Corr_mats[,,i] = vec2Corr(sample_corr[i,], p)
-  # }
-  # corrected_Correlation = correctCorrelation(Corr_mats, 1000)
-  # best_iw_param = findBestIWishart(sample_diag, Corr_mats, corrected_Correlation)
-  
   counter_c = 0
   sample_diag_c = NULL
   sample_corr_c = NULL
@@ -330,13 +252,6 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     sample_corr_c = rbind(sample_corr_c, 
                           lowerOffDiagonal(Cov2CorrMat(correct_res$C)))
   }
-  
-  # return(list(model=model,
-  #             sample_mu = sample_mu,
-  #             sample_diag = sample_diag,
-  #             sample_corr = sample_corr,
-  #             best_iw_v=best_iw_param$v,
-  #             best_iw_S=best_iw_param$S))
   
   return(list(model=model,
               sample_mu = sample_mu,
