@@ -1,7 +1,10 @@
 # Test Basic Helpers
 # Version 1.1
-# Last Updated on Jan 11, 2018
+# Last Updated on Jan 13, 2018
 
+rm(list = ls())
+
+# load helpers
 source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")
 
 # test compressCount
@@ -32,4 +35,15 @@ if (!res$is_psd & !all(abs(c(res$C)-c(1.1,1.1,1.1,1.1))<1E-8)) {
 # test Cov2CorrMat
 if (!all(abs(c(Cov2CorrMat(matrix(c(2,1.8,1.8,2),2,2)))-c(1,0.9,0.9,1))<1E-8)) {
   cat("Cov2CorrMat failed unit test!\n")
+}
+
+# test pbivnormBM
+if (!all(pbivnormBM(matrix(c(Inf,Inf,-Inf,-Inf,Inf,0,0,0),4,2,byrow=TRUE),0)==
+  c(1,0,0.5,0.25))) {
+  cat("pbivnormBM failed unit test!\n")
+}
+
+# test rTruncatedNormal
+if (abs(mean(rTruncatedNormal(n=100000, mu=3))-3)>0.01) {
+  cat("rTruncatedNormal failed unit test!\n")
 }

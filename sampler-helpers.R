@@ -82,6 +82,48 @@ genLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri, ...){
   quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
+genLikRoundedNormal <- function(y, mu, v, ...){
+  # compute the likelihood function value for a individual observation from a
+  # rounded normal via numerical integration.
+  # args:
+  #   y: observation.
+  #   mu: mean.
+  #   v: variance.
+  
+  if (y == 0) {
+    return(pnorm(0, mean=mu, sd=sqrt(v)))
+  } else {
+    return(pnorm(y, mean=mu, sd=sqrt(v))-pnorm(y-1, mean=mu, sd=sqrt(v)))
+  }
+}
+
+genLikRoundedGaussian2D <- function(y, mu, v, rho, ...){
+  # compute the likelihood function value for a individual observation from a 
+  # rounded bivariate Gaussian via numerical integration.
+  # args:
+  #   y: observation.
+  #   mu: mean.
+  #   upper_tri_inv: inverse of the upper triangular Cholesky factorization of 
+  #                  the covariance matrix.
+  
+  ur = y # upper right corner of the support
+  ll = y-1 # lower left corner of the support
+  if (y[1]==0) {
+    ll[1] = -Inf
+  }
+  if (y[2]==0) {
+    ll[2] = -Inf
+  }
+  ul = c(ll[1],ur[2]) # upper left corner of the support
+  lr = c(ur[1],ll[2]) # lower right corner of the support
+  
+  # change of variables
+  X = rbind((ur-mu)/sqrt(v), (ul-mu)/sqrt(v), 
+            (lr-mu)/sqrt(v), (ll-mu)/sqrt(v))
+  pbis = pbivnormBM(X,rho)
+  return(pbis[1]-pbis[2]-pbis[3]+pbis[4])
+}
+
 genGroupLLik <- function(group_compressed_y, genIndividualLik, group_mus, ...){
   # Compute the data likelihood for each group.
   # Args:
@@ -143,6 +185,21 @@ genLikBinomialLogGaussian2DGradient <- function(y, Ns, mu, v, upper_tri, rho, ..
   quad2d(integrand, -10, 10, -10, 10, 64)
 }
 
+genLikRoundedGaussian2DGradient <- function(y, mu, v, rho, ...){
+  # likelihood function value for a individual observation via numerical integration
+  # args:
+  #   y: observation.
+  #   Ns: (vector) number of trials.
+  #   mu: (vector) mean.
+  #   v: (vector) diagonal elements of the covariance matrix.
+  #   upper_tri: the upper triangular Cholesky factorization of the covariance matrix.
+  #   rho: correlation.
+  
+  small_value = 1E-8
+  (genLikRoundedGaussian2D(y=y, mu=mu, v=v, rho=rho+small_value, ...)-
+      genLikRoundedGaussian2D(y=y, mu=mu, v=v, rho=rho-small_value, ...))/2/small_value
+}
+
 getFcn <- function(model, fcn_name) {
   # Get the correct function for specified model
   # Args:
@@ -158,6 +215,10 @@ getFcn <- function(model, fcn_name) {
     genIndividualLik1D = genLikBinomialLogNormal
     genIndividualLik2D = genLikBinomialLogGaussian2D
     genIndividualLikGrad2D = genLikBinomialLogGaussian2DGradient
+  } else if (model=="roundedGaussian") {
+    genIndividualLik1D = genLikRoundedNormal
+    genIndividualLik2D = genLikRoundedGaussian2D
+    genIndividualLikGrad2D = genLikRoundedGaussian2DGradient
   }
   
   if (fcn_name=="IndividualLik1D") {
@@ -255,9 +316,9 @@ imputeLatentX <- function(imcomplete_x, sample_mu, sample_diag, sample_corr) {
   for (i in 1:ns) {
     Sigma = diag(sqrt(sample_diag[i,]))%*%vec2Corr(sample_corr[i,],p)%*%
       diag(sqrt(sample_diag[i,]))
-    R = Sigma[pred_id,-pred_id] %*% solve(Sigma[-pred_id,-pred_id])
+    R = Sigma[pred_id,-pred_id] %*% ginv(Sigma[-pred_id,-pred_id])
     V = Sigma[pred_id,pred_id] - Sigma[pred_id,-pred_id]%*%
-      solve(Sigma[-pred_id,-pred_id])%*%Sigma[-pred_id,pred_id]
+      ginv(Sigma[-pred_id,-pred_id])%*%Sigma[-pred_id,pred_id]
     if (V<0 & V>-1E-8){
       V = 0 # handle numerical error when Sigma is rank deficit
     } else if (V<=-1E-8) {

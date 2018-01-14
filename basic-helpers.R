@@ -4,6 +4,7 @@
 
 # dependencies
 suppressMessages(require(compiler))
+suppressMessages(require(pbivnorm))
 
 compressCount <- function(y){
   # compress multivariate count vectors into c(count,value) pairs
@@ -120,4 +121,45 @@ Cov2CorrMat <- function(S) {
   
   d = diag(S)
   return(diag(1/sqrt(d))%*%S%*%diag(1/sqrt(d)))
+}
+
+pbivnormBM <- function(X,rho) {
+  # wrapper function for pbivnorm.
+  # Args:
+  #   X: matrix of upper and lower integration limits for the CDF.
+  #   rho: correlation parameter.
+  
+  ret = NULL
+  for (i in 1:nrow(X)) {
+    if (X[i,1]==-Inf & X[i,2]==-Inf) {
+      ret = c(ret, 0)
+    } else if (X[i,1]==Inf & X[i,2]==Inf) {
+      ret = c(ret, 1)
+    } else {
+      ret = c(ret, pbivnorm(x=X[i,1],y=X[i,2],rho=rho))
+    }
+  }
+  return(ret)
+}
+pbivnormBM <- cmpfun(pbivnormBM)
+
+rTruncatedNormal <- function(n=1, l=-Inf, u=Inf, mu=0, s=1) {
+  # sample from truncated normal distribution.
+  # Args:
+  #   n: number of samples.
+  #   l: lower bound of the truncation.
+  #   u: upper bound of the truncation.
+  #   mu: mean.
+  #   s: variance.
+  
+  pl = pnorm(l, mu, sqrt(s))
+  pu = pnorm(u, mu, sqrt(s))
+  
+  # handle edge cases
+  if (pu==0 | pl==1) {
+    return(runif(n, l, u))
+  }
+  
+  psample = runif(n, pl, pu)
+  return(qnorm(psample, mu, sqrt(s)))
 }

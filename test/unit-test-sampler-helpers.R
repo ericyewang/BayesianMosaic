@@ -81,6 +81,44 @@ if (abs(res_int - res_test) / res_int > .01) {
   cat("genLikBinomialLogGaussian2DGradient failed unit test!\n")
 }
 
+# test Rounded Gaussian----
+# test genLikRoundedNormal
+res_int = genLikRoundedNormal(0, -1.2, .75)
+res_true = pnorm(0, -1.2, sqrt(0.75))
+if (res_int!=res_true) {
+  cat("genLikPoissonLogNormal failed unit test!\n")
+}
+res_int = genLikRoundedNormal(4, -1.2, .75)
+res_true = pnorm(4, -1.2, sqrt(0.75))-pnorm(3, -1.2, sqrt(0.75))
+if (res_int!=res_true) {
+  cat("genLikPoissonLogNormal failed unit test!\n")
+}
+
+# test genLikRoundedGaussian2D
+Sigma = matrix(c(1.2, .96, .96, 1.4), 2, 2)
+res_int = genLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), 
+                                  Sigma[1,2]/sqrt(Sigma[1,1])/sqrt(Sigma[2,2]))
+latent_x = rmvnorm(100000, c(-4, -4), Sigma)
+res_mc = mean(latent_x[,1]<0&latent_x[,2]<0)
+if (abs(res_int - res_mc) / res_int > .01) {
+  cat("genLikRoundedGaussian2D failed unit test!\n")
+}
+
+# test genLikRoundedGaussian2DGradient
+v = c(1.2, 1.4)
+rho = 0.8
+Sigma = diag(sqrt(v)) %*% matrix(c(1, rho, rho, 1), 2, 2) %*% diag(sqrt(v))
+res_int = genLikRoundedGaussian2DGradient(c(0, 0), c(-4,-4), diag(Sigma), rho)
+
+Sigma_u = diag(sqrt(v))%*%matrix(c(1, rho+1E-8, rho+1E-8, 1), 2, 2)%*%diag(sqrt(v))
+Sigma_l = diag(sqrt(v))%*%matrix(c(1, rho-1E-8, rho-1E-8, 1), 2, 2)%*%diag(sqrt(v))
+res_test = (genLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), rho+1E-8)-
+              genLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), rho-1E-8))/(2E-8)
+
+if (res_int!=res_test) {
+  cat("genLikRoundedGaussian2DGradient failed unit test!\n")
+}
+
 # test imputeLatentX----
 p = 5
 mu = 5*rnorm(p)
