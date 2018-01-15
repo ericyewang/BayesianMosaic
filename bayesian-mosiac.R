@@ -158,6 +158,8 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     } else if (model=="mvtBinomial") {
       pr = mean(y)/args$N + 1E-4
       mu = log(pr/(1-pr))
+    } else if (model=="roundedGaussian") {
+      mu = mean(y)
     }
   })
   
@@ -204,13 +206,9 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
     y = cbind(Y[,s], Y[,t])
     sample_mu = rbind(knots[[s]]$sample_mu, knots[[t]]$sample_mu)
     sample_s = rbind(knots[[s]]$sample_s, knots[[t]]$sample_s)
-    if (model=="mvtPoisson") {
-      return( sampleTile(y = y, sample_mu = sample_mu, sample_s = sample_s, 
-                         model="mvtPoisson", verbose = verb) )
-    } else if (model=="mvtBinomial") {
-      return( sampleTile(y = y, sample_mu = sample_mu, sample_s = sample_s, 
-                         model="mvtBinomial", verbose = verb, Ns = Ns[c(s, t)]) )
-    }
+    if (is.null(args$Ns)) {Ns=NULL} else {Ns=args$Ns[c(s, t)]}
+    return(sampleTile(y=y, sample_mu=sample_mu, sample_s=sample_s, 
+                       model=model, verbose=verb, Ns=Ns))
   }
   
   if (parallel) {

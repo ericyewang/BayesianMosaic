@@ -337,11 +337,11 @@ damcmcRoundedGaussian <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, p
       for (j in 1:p) {
         mux = mu[j] + sum(aux_mat[j, -j]*(x[-j]-mu[-j]))
         # subtract the global mean from latent x's
-        l = y[i,j]-1
-        if (y[i,j]==0) {
+        l = Y[i,j]-1
+        if (Y[i,j]==0) {
           l = -Inf
         }
-        x[j] = rTruncatedNormal(1, l, y[i,j], mux, aux_mat[j, j])
+        x[j] = rTruncatedNormal(1, l, Y[i,j], mux, aux_mat[j, j])
       }
       return(x)
     }

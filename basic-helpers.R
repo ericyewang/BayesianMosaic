@@ -131,7 +131,7 @@ pbivnormBM <- function(X,rho) {
   
   ret = NULL
   for (i in 1:nrow(X)) {
-    if (X[i,1]==-Inf & X[i,2]==-Inf) {
+    if (X[i,1]==-Inf | X[i,2]==-Inf) {
       ret = c(ret, 0)
     } else if (X[i,1]==Inf & X[i,2]==Inf) {
       ret = c(ret, 1)
