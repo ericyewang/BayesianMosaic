@@ -132,10 +132,11 @@ genGroupLLik <- function(group_compressed_y, genIndividualLik, group_mus, ...){
   #                       matrix, each column is taken to be a quantile.
   #   genIndividualLik: function that computes the likelihood for a quantile.
   
+  group_mus = as.matrix(group_mus)
   ret = NULL
-  for (i in 1:ncol(group_mus)){
+  for (i in 1:nrow(group_mus)){
     ret = c(ret, genLLik(compressed_y=group_compressed_y[[i]], 
-                         genIndividualLik=genIndividualLik, mu=group_mus[,i], 
+                         genIndividualLik=genIndividualLik, mu=group_mus[i,], 
                          ...))
   }
   return(ret)
