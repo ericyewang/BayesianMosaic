@@ -156,8 +156,11 @@ rTruncatedNormal <- function(n=1, l=-Inf, u=Inf, mu=0, s=1) {
   pu = pnorm(u, mu, sqrt(s))
   
   # handle edge cases
-  if (pu==0 | pl==1) {
-    return(runif(n, l, u))
+  if (pu==0) {
+    return(u)
+  }
+  if (pl==1) {
+    return(l)
   }
   
   psample = runif(n, pl, pu)

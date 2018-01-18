@@ -47,3 +47,9 @@ if (!all(pbivnormBM(matrix(c(Inf,Inf,-Inf,-Inf,Inf,0,0,0),4,2,byrow=TRUE),0)==
 if (abs(mean(rTruncatedNormal(n=100000, mu=3))-3)>0.01) {
   cat("rTruncatedNormal failed unit test!\n")
 }
+if (rTruncatedNormal(1, -Inf, 0, 20, 0.1)!=0) {
+  cat("rTruncatedNormal failed unit test!\n")
+}
+if (rTruncatedNormal(1, 0, Inf, -20, 0.1)!=0) {
+  cat("rTruncatedNormal failed unit test!\n")
+}
