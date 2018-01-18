@@ -44,7 +44,7 @@ if (!all(pbivnormBM(matrix(c(Inf,Inf,-Inf,-Inf,Inf,0,0,0),4,2,byrow=TRUE),0)==
 }
 
 # test rTruncatedNormal
-if (abs(mean(rTruncatedNormal(n=100000, mu=3))-3)>0.01) {
+if (abs(mean(rTruncatedNormal(100000, 0, 6, 3, 1))-3)>0.01) {
   cat("rTruncatedNormal failed unit test!\n")
 }
 if (rTruncatedNormal(1, -Inf, 0, 20, 0.1)!=0) {

@@ -302,7 +302,6 @@ damcmcRoundedGaussian <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, p
   n = nrow(Y)
   p = ncol(Y)
   # initialization
-  latent_x = matrix(0, n, p)
   if (is.null(inits)) {
     mu = rep(0, p)
     Sigma = diag(1, p)
@@ -311,6 +310,7 @@ damcmcRoundedGaussian <- function(Y, ns, inits, stop_time=NULL, verbose=FALSE, p
     Sigma = inits$Sigma
   }
   Sinv = solve(Sigma)
+  latent_x = matrix(rep(mu,n),n,p,byrow=TRUE)
   
   # outputs
   sample_mu = NULL

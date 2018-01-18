@@ -143,7 +143,7 @@ pbivnormBM <- function(X,rho) {
 }
 pbivnormBM <- cmpfun(pbivnormBM)
 
-rTruncatedNormal <- function(n=1, l=-Inf, u=Inf, mu=0, s=1) {
+rTruncatedNormal <- function(n, l, u, mu, s) {
   # sample from truncated normal distribution.
   # Args:
   #   n: number of samples.
@@ -165,4 +165,22 @@ rTruncatedNormal <- function(n=1, l=-Inf, u=Inf, mu=0, s=1) {
   
   psample = runif(n, pl, pu)
   return(qnorm(psample, mu, sqrt(s)))
+}
+
+quad2Log <- function(logIntegrand, n, xa, xb, ya, yb, ...) {
+  # Calculate the log integral via two-dimensional Gaussian quadrature.
+  # Args:
+  #   logIntegrand: the log of the target integrand function.
+  #   n: number of nodes used per direction.
+  #   xa, ya: lower limits of integration; must be finite.
+  #   xb, yb: upper limits of integration; must be finite.
+  #   ...: additional arguments to be passed to logIntegrand.
+  
+  cx <- gaussLegendre(n, xa, xb)
+  cy <- gaussLegendre(n, ya, yb)
+  xygrid = expand.grid(x=cx$x, y=cy$x)
+  wxygrid = expand.grid(x=cx$w, y=cy$w)
+  
+  tmp = log(wxygrid$x)+log(wxygrid$y)+logIntegrand(xygrid$x, xygrid$y, ...)
+  return(min(tmp)+log(sum(exp(tmp-min(tmp)))))
 }
