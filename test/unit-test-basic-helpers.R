@@ -5,6 +5,7 @@
 rm(list = ls())
 
 # load helpers
+suppressMessages(require(rbenchmark))
 source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")
 
 # test compressCount
@@ -53,3 +54,28 @@ if (rTruncatedNormal(1, -Inf, 0, 20, 0.1)!=0) {
 if (rTruncatedNormal(1, 0, Inf, -20, 0.1)!=0) {
   cat("rTruncatedNormal failed unit test!\n")
 }
+
+# test quad2Log
+integrand <- function(x,y,c) {
+  c*x^2*y^4
+}
+logIntegrand <- function(x,y,c) {
+  log(c)+2*log(abs(x))+4*log(abs(y))
+}
+if(!abs(quad2Log(logIntegrand=logIntegrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)-
+  log(quad2d(f=integrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)))<1E-8) {
+  cat("quad2Log failed unit test!\n")
+}
+
+# benchmark("quad2dLog" = {
+#   quad2Log(logIntegrand=logIntegrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)
+# },
+# "log(quad2d)" = {
+#   log(quad2d(f=integrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3))
+# },
+# replications = 5000,
+# columns = c("test", "replications", "elapsed",
+#             "relative", "user.self", "sys.self"))
+# test replications elapsed relative user.self sys.self
+# 2 log(quad2d)         5000  14.481    1.000    14.137    0.320
+# 1   quad2dLog         5000  18.978    1.311    18.540    0.392

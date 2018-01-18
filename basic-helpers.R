@@ -3,6 +3,7 @@
 # Last Updated on Jan 10, 2017
 
 # dependencies
+suppressMessages(require(pracma))
 suppressMessages(require(compiler))
 suppressMessages(require(pbivnorm))
 

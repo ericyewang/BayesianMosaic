@@ -6,7 +6,6 @@
 source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")
 # source("/home/collabor/yw104/BayesianMosaic/basic-helpers.R")
 suppressMessages(require(mvtnorm))
-suppressMessages(require(pracma))
 suppressMessages(require(MCMCpack))
 suppressMessages(require(parallel))
 ncores = detectCores() - 1
