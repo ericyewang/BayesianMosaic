@@ -8,21 +8,21 @@ rm(list = ls())
 source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
 
 # test Poisson----
-# test genLikPoissonLogNormal
-res_int = genLikPoissonLogNormal(1, -1.2, .75)
-res_mc = mean(dpois(1, exp(-1.2 + sqrt(.75) * rnorm(100000))))
+# test genLLikPoissonLogNormal
+res_int = genLLikPoissonLogNormal(1, -1.2, .75)
+res_mc = log(mean(dpois(1, exp(-1.2 + sqrt(.75) * rnorm(100000)))))
 if (abs(res_int - res_mc) / res_int > .01) {
-  cat("genLikPoissonLogNormal failed unit test!\n")
+  cat("genLLikPoissonLogNormal failed unit test!\n")
 }
 
-# test genLikPoissonLogGaussian2D
+# test genLLikPoissonLogGaussian2D
 Sigma = matrix(c(1.2, .96, .96, 1.4), 2, 2)
 upper_tri = chol(Sigma)
-res_int = genLikPoissonLogGaussian2D(c(0, 0), c(-4, -4), upper_tri)
+res_int = genLLikPoissonLogGaussian2D(c(0, 0), c(-4, -4), upper_tri)
 latent_x = rmvnorm(10000, c(-4, -4), Sigma)
-res_mc = mean(dpois(0, exp(latent_x[,1]))*dpois(0, exp(latent_x[,2])))
+res_mc = log(mean(dpois(0, exp(latent_x[,1]))*dpois(0, exp(latent_x[,2]))))
 if (abs(res_int - res_mc) / res_int > .01) {
-  cat("genLikPoissonLogGaussian2D failed unit test!\n")
+  cat("genLLikPoissonLogGaussian2D failed unit test!\n")
 }
 
 # test genLikPoissonLogGaussian2DGradient
@@ -37,29 +37,29 @@ Sigma_u = diag(sqrt(v))%*%matrix(c(1, rho+1E-4, rho+1E-4, 1), 2, 2)%*%diag(sqrt(
 upper_tri_u = chol(Sigma_u)
 Sigma_l = diag(sqrt(v))%*%matrix(c(1, rho-1E-4, rho-1E-4, 1), 2, 2)%*%diag(sqrt(v))
 upper_tri_l = chol(Sigma_l)
-res_test = (genLikPoissonLogGaussian2D(c(0, 0), c(-4, -4), upper_tri_u)-
-              genLikPoissonLogGaussian2D(c(0, 0), c(-4, -4), upper_tri_l))/(2E-4)
+res_test = (exp(genLLikPoissonLogGaussian2D(c(0, 0), c(-4, -4), upper_tri_u))-
+              exp(genLLikPoissonLogGaussian2D(c(0, 0), c(-4, -4), upper_tri_l)))/(2E-4)
 
 if (abs(res_int - res_test) / res_int > .01) {
   cat("genLikPoissonLogGaussian2DGradient failed unit test!\n")
 }
 
 # test Binomial----
-# test genLikBinomialLogNormal
-res_int = genLikBinomialLogNormal(1, 8, -1.2, .75)
-res_mc = mean(dbinom(1, 8, 1/(1+exp(-(-1.2+sqrt(.75)*rnorm(100000))))))
+# test genLLikBinomialLogNormal
+res_int = genLLikBinomialLogNormal(1, 8, -1.2, .75)
+res_mc = log(mean(dbinom(1, 8, 1/(1+exp(-(-1.2+sqrt(.75)*rnorm(100000)))))))
 if (abs(res_int - res_mc) / res_int > .01) {
-  cat("genLikBinomialLogNormal failed unit test!\n")
+  cat("genLLikBinomialLogNormal failed unit test!\n")
 }
 
-# test genLikBinomialLogGaussian2D
+# test genLLikBinomialLogGaussian2D
 Sigma = matrix(c(1.2, .96, .96, 1.4), 2, 2)
 upper_tri = chol(Sigma)
-res_int = genLikBinomialLogGaussian2D(c(0, 0), c(7, 8), c(-4, -4), upper_tri)
+res_int = genLLikBinomialLogGaussian2D(c(0, 0), c(7, 8), c(-4, -4), upper_tri)
 latent_x = rmvnorm(10000, c(-4, -4), Sigma)
-res_mc = mean(dbinom(0, 7, 1 / (1 + exp(-latent_x[,1])))*dbinom(0, 8, 1 / (1 + exp(-latent_x[,2]))))
+res_mc = log(mean(dbinom(0, 7, 1 / (1 + exp(-latent_x[,1])))*dbinom(0, 8, 1 / (1 + exp(-latent_x[,2])))))
 if (abs(res_int - res_mc) / res_int > .01) {
-  cat("genLikBinomialLogGaussian2D failed unit test!\n")
+  cat("genLLikBinomialLogGaussian2D failed unit test!\n")
 }
 
 # test genLikBinomialLogGaussian2DGradient
@@ -74,34 +74,34 @@ Sigma_u = diag(sqrt(v))%*%matrix(c(1, rho+1E-4, rho+1E-4, 1), 2, 2)%*%diag(sqrt(
 upper_tri_u = chol(Sigma_u)
 Sigma_l = diag(sqrt(v))%*%matrix(c(1, rho-1E-4, rho-1E-4, 1), 2, 2)%*%diag(sqrt(v))
 upper_tri_l = chol(Sigma_l)
-res_test = (genLikBinomialLogGaussian2D(c(0, 0), c(7, 8), c(-4, -4), upper_tri_u)-
-              genLikBinomialLogGaussian2D(c(0, 0), c(7, 8), c(-4, -4), upper_tri_l))/(2E-4)
+res_test = (exp(genLLikBinomialLogGaussian2D(c(0, 0), c(7, 8), c(-4, -4), upper_tri_u))-
+              exp(genLLikBinomialLogGaussian2D(c(0, 0), c(7, 8), c(-4, -4), upper_tri_l)))/(2E-4)
 
 if (abs(res_int - res_test) / res_int > .01) {
   cat("genLikBinomialLogGaussian2DGradient failed unit test!\n")
 }
 
 # test Rounded Gaussian----
-# test genLikRoundedNormal
-res_int = genLikRoundedNormal(0, -1.2, .75)
-res_true = pnorm(0, -1.2, sqrt(0.75))
+# test genLLikRoundedNormal
+res_int = genLLikRoundedNormal(0, -1.2, .75)
+res_true = pnorm(0, -1.2, sqrt(0.75), log=TRUE)
 if (res_int!=res_true) {
-  cat("genLikPoissonLogNormal failed unit test!\n")
+  cat("genLLikPoissonLogNormal failed unit test!\n")
 }
-res_int = genLikRoundedNormal(4, -1.2, .75)
-res_true = pnorm(4, -1.2, sqrt(0.75))-pnorm(3, -1.2, sqrt(0.75))
-if (res_int!=res_true) {
-  cat("genLikPoissonLogNormal failed unit test!\n")
+res_int = genLLikRoundedNormal(4, -1.2, .75)
+res_true = log(pnorm(4, -1.2, sqrt(0.75))-pnorm(3, -1.2, sqrt(0.75)))
+if (abs(res_int-res_true)>1E-8) {
+  cat("genLLikPoissonLogNormal failed unit test!\n")
 }
 
-# test genLikRoundedGaussian2D
+# test genLLikRoundedGaussian2D
 Sigma = matrix(c(1.2, .96, .96, 1.4), 2, 2)
-res_int = genLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), 
+res_int = genLLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), 
                                   Sigma[1,2]/sqrt(Sigma[1,1])/sqrt(Sigma[2,2]))
 latent_x = rmvnorm(100000, c(-4, -4), Sigma)
-res_mc = mean(latent_x[,1]<0&latent_x[,2]<0)
+res_mc = log(mean(latent_x[,1]<0&latent_x[,2]<0))
 if (abs(res_int - res_mc) / res_int > .01) {
-  cat("genLikRoundedGaussian2D failed unit test!\n")
+  cat("genLLikRoundedGaussian2D failed unit test!\n")
 }
 
 # test genLikRoundedGaussian2DGradient
@@ -112,8 +112,8 @@ res_int = genLikRoundedGaussian2DGradient(c(0, 0), c(-4,-4), diag(Sigma), rho)
 
 Sigma_u = diag(sqrt(v))%*%matrix(c(1, rho+1E-8, rho+1E-8, 1), 2, 2)%*%diag(sqrt(v))
 Sigma_l = diag(sqrt(v))%*%matrix(c(1, rho-1E-8, rho-1E-8, 1), 2, 2)%*%diag(sqrt(v))
-res_test = (genLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), rho+1E-8)-
-              genLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), rho-1E-8))/(2E-8)
+res_test = (exp(genLLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), rho+1E-8))-
+              exp(genLLikRoundedGaussian2D(c(0, 0), c(-4, -4), diag(Sigma), rho-1E-8)))/(2E-8)
 
 if (res_int!=res_test) {
   cat("genLikRoundedGaussian2DGradient failed unit test!\n")

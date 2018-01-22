@@ -11,8 +11,8 @@ suppressMessages(require(parallel))
 ncores = detectCores() - 1
 
 # likelihood functions via numerical integration, 1-d or 2-d
-genLikPoissonLogNormal <- function(y, mu, v, ...){
-  # compute the likelihood function value for a individual observation from a
+genLLikPoissonLogNormal <- function(y, mu, v, ...){
+  # compute the log-likelihood function value for a individual observation from a
   # Poisson log-normal distribution via numerical integration.
   # args:
   #   y: observation.
@@ -22,12 +22,12 @@ genLikPoissonLogNormal <- function(y, mu, v, ...){
   integrand <- function(x){
     return(dpois(y, exp(x))*dnorm(x,mean=mu,sd=sqrt(v)))
   }
-  integrate(integrand, lower = min(log(y+0.1), mu)-4*sqrt(v), 
-            upper = max(log(y+0.1), mu)+4*sqrt(v), stop.on.error=FALSE)$value
+  log(integrate(integrand, lower = min(log(y+0.1), mu)-4*sqrt(v), 
+            upper = max(log(y+0.1), mu)+4*sqrt(v), stop.on.error=FALSE)$value)
 }
 
-genLikPoissonLogGaussian2D <- function(y, mu, upper_tri, ...){
-  # compute the likelihood function value for a individual observation from a multivariate 
+genLLikPoissonLogGaussian2D <- function(y, mu, upper_tri, ...){
+  # compute the log-likelihood function value for a individual observation from a multivariate 
   # Poisson log-Gaussian distribution via numerical integration.
   # args:
   #   y: observation.
@@ -38,17 +38,18 @@ genLikPoissonLogGaussian2D <- function(y, mu, upper_tri, ...){
     # change of variables
     x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
     x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
-    dpois(y[1], exp(x1))*dpois(y[2], exp(x2))*dnorm(z1)*dnorm(z2)
+    dpois(y[1], exp(x1), log=TRUE) + dpois(y[2], exp(x2), log=TRUE) + 
+      dnorm(z1, log=TRUE) + dnorm(z2, log=TRUE)
     # note that dmvnorm(cbind(c(x1),c(x2)), mu, S)*det(upper_tri) equals dnorm(z1)*dnorm(z2)
   }
   # finite lower and upper bounds have to be provided for quad2d
   # in our case we set it to be 10 sd away from the center to make sure that
   # the function value is negligible
-  quad2d(integrand, -10, 10, -10, 10, 64)
+  quad2dLog(integrand, 64, -10, 10, -10, 10)
 }
 
-genLikBinomialLogNormal <- function(y, N, mu, v, ...){
-  # compute the likelihood function value for a individual observation from a
+genLLikBinomialLogNormal <- function(y, N, mu, v, ...){
+  # compute the log-likelihood function value for a individual observation from a
   # Poisson log-normal distribution via numerical integration
   # args:
   #   y: observation
@@ -59,12 +60,12 @@ genLikBinomialLogNormal <- function(y, N, mu, v, ...){
   integrand <- function(x){
     return(dbinom(y, N, 1/(1+exp(-x)))*dnorm(x,mean=mu,sd=sqrt(v)))
   }
-  integrate(integrand, lower = min(log((y+0.1)/N), mu)-4*sqrt(v), 
-            upper = max(log((y+0.1)/N), mu)+4*sqrt(v), stop.on.error=FALSE)$value
+  log(integrate(integrand, lower = min(log((y+0.1)/N), mu)-4*sqrt(v), 
+            upper = max(log((y+0.1)/N), mu)+4*sqrt(v), stop.on.error=FALSE)$value)
 }
 
-genLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri, ...){
-  # compute the likelihood function value for a individual observation from a multivariate 
+genLLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri, ...){
+  # compute the log-likelihood function value for a individual observation from a multivariate 
   # binomial log-Gaussian distribution via numerical integration.
   # args:
   #   y: (vector) observations.
@@ -75,14 +76,16 @@ genLikBinomialLogGaussian2D <- function(y, Ns, mu, upper_tri, ...){
   integrand <- function(z1, z2) {
     x1 = mu[1]+upper_tri[1,1]*z1+upper_tri[2,1]*z2
     x2 = mu[2]+upper_tri[1,2]*z1+upper_tri[2,2]*z2
-    dbinom(y[1], Ns[1], 1/(1+exp(-x1)))*dbinom(y[2], Ns[2], 1/(1+exp(-x2)))*dnorm(z1)*dnorm(z2)
+    dbinom(y[1], Ns[1], 1/(1+exp(-x1)), log=TRUE)+
+      dbinom(y[2], Ns[2], 1/(1+exp(-x2)), log=TRUE)+
+      dnorm(z1, log=TRUE)+dnorm(z2, log=TRUE)
   }
   
-  quad2d(integrand, -10, 10, -10, 10, 64)
+  quad2dLog(integrand, 64, -10, 10, -10, 10)
 }
 
-genLikRoundedNormal <- function(y, mu, v, ...){
-  # compute the likelihood function value for a individual observation from a
+genLLikRoundedNormal <- function(y, mu, v, ...){
+  # compute the log-likelihood function value for a individual observation from a
   # rounded normal via numerical integration.
   # args:
   #   y: observation.
@@ -90,14 +93,16 @@ genLikRoundedNormal <- function(y, mu, v, ...){
   #   v: variance.
   
   if (y == 0) {
-    return(pnorm(0, mean=mu, sd=sqrt(v)))
+    return(pnorm(0, mean=mu, sd=sqrt(v), log=TRUE))
   } else {
-    return(pnorm(y, mean=mu, sd=sqrt(v))-pnorm(y-1, mean=mu, sd=sqrt(v)))
+    py = pnorm(y, mean=mu, sd=sqrt(v), log=TRUE)
+    pym1 = pnorm(y-1, mean=mu, sd=sqrt(v), log=TRUE)
+    return(pym1+log(exp(py-pym1)-1))
   }
 }
 
-genLikRoundedGaussian2D <- function(y, mu, v, rho, ...){
-  # compute the likelihood function value for a individual observation from a 
+genLLikRoundedGaussian2D <- function(y, mu, v, rho, ...){
+  # compute the log-likelihood function value for a individual observation from a 
   # rounded bivariate Gaussian via numerical integration.
   # args:
   #   y: observation.
@@ -120,22 +125,22 @@ genLikRoundedGaussian2D <- function(y, mu, v, rho, ...){
   X = rbind((ur-mu)/sqrt(v), (ul-mu)/sqrt(v), 
             (lr-mu)/sqrt(v), (ll-mu)/sqrt(v))
   pbis = pbivnormBM(X,rho)
-  return(pbis[1]-pbis[2]-pbis[3]+pbis[4])
+  return(log(pbis[1]-pbis[2]-pbis[3]+pbis[4]))
 }
 
-genGroupLLik <- function(group_compressed_y, genIndividualLik, group_mus, ...){
+genGroupLLik <- function(group_compressed_y, genIndividualLLik, group_mus, ...){
   # Compute the data likelihood for each group.
   # Args:
   #   group_compressed_y: a list of matrices. Each matrix contains compressed 
   #                       multivariate counts for a group of data. Within each
   #                       matrix, each column is taken to be a quantile.
-  #   genIndividualLik: function that computes the likelihood for a quantile.
+  #   genIndividualLLik: function that computes the log-likelihood for a quantile.
   
   group_mus = as.matrix(group_mus)
   ret = NULL
   for (i in 1:nrow(group_mus)){
     ret = c(ret, genLLik(compressed_y=group_compressed_y[[i]], 
-                         genIndividualLik=genIndividualLik, mu=group_mus[i,], 
+                         genIndividualLLik=genIndividualLLik, mu=group_mus[i,], 
                          ...))
   }
   return(ret)
@@ -196,8 +201,8 @@ genLikRoundedGaussian2DGradient <- function(y, mu, v, rho, ...){
   #   rho: correlation.
   
   small_value = 1E-8
-  (genLikRoundedGaussian2D(y=y, mu=mu, v=v, rho=rho+small_value, ...)-
-      genLikRoundedGaussian2D(y=y, mu=mu, v=v, rho=rho-small_value, ...))/2/small_value
+  (exp(genLLikRoundedGaussian2D(y=y, mu=mu, v=v, rho=rho+small_value, ...))-
+      exp(genLLikRoundedGaussian2D(y=y, mu=mu, v=v, rho=rho-small_value, ...)))/2/small_value
 }
 
 getFcn <- function(model, fcn_name) {
@@ -207,24 +212,24 @@ getFcn <- function(model, fcn_name) {
   #   fcn_name: (string) function name.
   
   if (model=="mvtPoisson") {
-    genIndividualLik1D = genLikPoissonLogNormal
-    genIndividualLik2D = genLikPoissonLogGaussian2D
+    genIndividualLLik1D = genLLikPoissonLogNormal
+    genIndividualLLik2D = genLLikPoissonLogGaussian2D
     genIndividualLikGrad2D = genLikPoissonLogGaussian2DGradient
   } else if (model=="mvtBinomial") {
     Ns = args[[1]]$Ns
-    genIndividualLik1D = genLikBinomialLogNormal
-    genIndividualLik2D = genLikBinomialLogGaussian2D
+    genIndividualLLik1D = genLLikBinomialLogNormal
+    genIndividualLLik2D = genLLikBinomialLogGaussian2D
     genIndividualLikGrad2D = genLikBinomialLogGaussian2DGradient
   } else if (model=="roundedGaussian") {
-    genIndividualLik1D = genLikRoundedNormal
-    genIndividualLik2D = genLikRoundedGaussian2D
+    genIndividualLLik1D = genLLikRoundedNormal
+    genIndividualLLik2D = genLLikRoundedGaussian2D
     genIndividualLikGrad2D = genLikRoundedGaussian2DGradient
   }
   
-  if (fcn_name=="IndividualLik1D") {
-    return(genIndividualLik1D)
-  } else if (fcn_name=="IndividualLik2D") {
-    return(genIndividualLik2D)
+  if (fcn_name=="IndividualLLik1D") {
+    return(genIndividualLLik1D)
+  } else if (fcn_name=="IndividualLLik2D") {
+    return(genIndividualLLik2D)
   } else if (fcn_name=="IndividualLikGrad2D") {
     return(genIndividualLikGrad2D)
   }
@@ -261,14 +266,14 @@ sampleLaplaceApprox <- function(compressed_y, model, mu, vvars, ...) {
   #   mu: mean vector
   #   vvars: vector of variances
   
-  genIndividualLik2D = getFcn(model, "IndividualLik2D")
+  genIndividualLLik2D = getFcn(model, "IndividualLLik2D")
   genIndividualLikGrad2D = getFcn(model, "IndividualLikGrad2D")
   x_sample = -Inf
   
   llikGradient <- function(rho) {
     Sigma = diag(sqrt(vvars)) %*% matrix(c(1, rho, rho, 1), 2, 2) %*% diag(sqrt(vvars))
     upper_tri = chol(Sigma)
-    return(-genLLikGrad(compressed_y=compressed_y, genIndividualLik=genIndividualLik2D, 
+    return(-genLLikGrad(compressed_y=compressed_y, genIndividualLik=genIndividualLLik2D, 
                         genIndividualLikGrad=genIndividualLikGrad2D, mu=mu, 
                         v=vvars, upper_tri=upper_tri, rho=rho)-1/(1+rho)+1/(1-rho))
   }

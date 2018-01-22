@@ -55,20 +55,20 @@ if (rTruncatedNormal(1, 0, Inf, -20, 0.1)!=0) {
   cat("rTruncatedNormal failed unit test!\n")
 }
 
-# test quad2Log
+# test quad2dLog
 integrand <- function(x,y,c) {
   c*x^2*y^4
 }
 logIntegrand <- function(x,y,c) {
   log(c)+2*log(abs(x))+4*log(abs(y))
 }
-if(!abs(quad2Log(logIntegrand=logIntegrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)-
+if(!abs(quad2dLog(logIntegrand=logIntegrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)-
   log(quad2d(f=integrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)))<1E-8) {
   cat("quad2Log failed unit test!\n")
 }
 
 # benchmark("quad2dLog" = {
-#   quad2Log(logIntegrand=logIntegrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)
+#   quad2dLog(logIntegrand=logIntegrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3)
 # },
 # "log(quad2d)" = {
 #   log(quad2d(f=integrand, n=64, xa=-2, xb=2, ya=-3, yb=4, c=3))

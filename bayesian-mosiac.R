@@ -28,7 +28,7 @@ sampleLKJ <- function(n, p) {
 }
 
 # Bayesian Mosaic
-sampleKnot <- function(y, nb, ns, njump, proposal_var, inits, genIndividualLik, verbose = FALSE, ...) {
+sampleKnot <- function(y, nb, ns, njump, proposal_var, inits, genIndividualLLik, verbose = FALSE, ...) {
   # TODO
   
   acr_target = 0.25 # target acceptance rate
@@ -71,7 +71,8 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, inits, genIndividualLik, 
     new_mu = mu + sqrt(proposal_var_mu) * rnorm(1)
     new_s = s + sqrt(proposal_var_s) * rnorm(1)
     if (new_s > 0) {
-      new_llik = genLLik(compressed_y=compressed_y, genIndividualLik=genIndividualLik,
+      new_llik = genLLik(compressed_y=compressed_y, 
+                         genIndividualLLik=genIndividualLLik,
                          mu = new_mu, v = new_s, ...)
       new_lpost = new_llik + dgamma(1 / new_s, shape = 2, rate = 2, log = TRUE)
       prv_lpost = prv_llik + dgamma(1 / s, shape = 2, rate = 2, log = TRUE)
@@ -150,8 +151,8 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
   
   args = as.list(sys.call())
   p = ncol(Y)
-  genIndividualLik1D = getFcn(model, "IndividualLik1D")
-  genIndividualLik2D = getFcn(model, "IndividualLik2D")
+  genIndividualLLik1D = getFcn(model, "IndividualLLik1D")
+  genIndividualLLik2D = getFcn(model, "IndividualLLik2D")
   initial_mu = apply(Y, 2, FUN=function(y){
     if (model=="mvtPoisson") {
       mu = log(mean(y)+1E-4)

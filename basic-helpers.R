@@ -68,35 +68,34 @@ vec2Corr <- function(rhos, p) {
 }
 vec2Corr <- cmpfun(vec2Corr)
 
-genLLik <- function(compressed_y, genIndividualLik, ...){
+genLLik <- function(compressed_y, genIndividualLLik, ...){
   # Compute the data log-likelihood.
   # Args:
   #   compressed_y: matrix of compressed multivariate counts. Each column is
   #                 taken to be a quantile.
-  #   genIndividualLik: function that computes the likelihood for a quantile.
+  #   genIndividualLLik: function that computes the log-likelihood for a quantile.
   
   ret = 0
   for (i in 1:ncol(compressed_y)){
-    ret = ret+compressed_y[1, i]*
-      log(genIndividualLik(y=compressed_y[-1, i], ...))
+    ret = ret+compressed_y[1, i]*genIndividualLLik(y=compressed_y[-1, i], ...)
   }
   return(ret)
 }
 genLLik <- cmpfun(genLLik)
 
-genLLikGrad <- function(compressed_y, genIndividualLik, genIndividualLikGrad, ...){
+genLLikGrad <- function(compressed_y, genIndividualLLik, genIndividualLikGrad, ...){
   # Compute the gradient of the data log-likelihood.
   # Args:
   #   compressed_y: matrix of compressed multivariate counts. Each column is
   #                 taken to be a quantile.
-  #   genIndividualLik: function that computes the likelihood for a quantile.
+  #   genIndividualLLik: function that computes the log-likelihood for a quantile.
   #   genIndividualLikGrad: function that computes the gradient of the likelihood
   #                         for a quantile.
   
   ret = 0
   for (i in 1:ncol(compressed_y)){
     ret = ret+compressed_y[1,i]*genIndividualLikGrad(y=compressed_y[-1, i], ...)/
-      genIndividualLik(y=compressed_y[-1, i], ...)
+      exp(genIndividualLLik(y=compressed_y[-1, i], ...))
   }
   return(ret)
 }
@@ -153,22 +152,27 @@ rTruncatedNormal <- function(n, l, u, mu, s) {
   #   mu: mean.
   #   s: variance.
   
+  small_value = 1E-8
   pl = pnorm(l, mu, sqrt(s))
   pu = pnorm(u, mu, sqrt(s))
   
   # handle edge cases
-  if (pu==0) {
-    return(u)
+  if (pu<small_value) {
+    return(rep(u, n))
   }
-  if (pl==1) {
-    return(l)
+  if (pl>1-small_value) {
+    return(rep(l, n))
   }
   
   psample = runif(n, pl, pu)
-  return(qnorm(psample, mu, sqrt(s)))
+  ret = qnorm(psample, mu, sqrt(s))
+  # preventing rounding errors
+  ret[ret<l] = l
+  ret[ret>u] = u
+  return(ret)
 }
 
-quad2Log <- function(logIntegrand, n, xa, xb, ya, yb, ...) {
+quad2dLog <- function(logIntegrand, n, xa, xb, ya, yb, ...) {
   # Calculate the log integral via two-dimensional Gaussian quadrature.
   # Args:
   #   logIntegrand: the log of the target integrand function.
@@ -177,11 +181,11 @@ quad2Log <- function(logIntegrand, n, xa, xb, ya, yb, ...) {
   #   xb, yb: upper limits of integration; must be finite.
   #   ...: additional arguments to be passed to logIntegrand.
   
-  cx <- gaussLegendre(n, xa, xb)
-  cy <- gaussLegendre(n, ya, yb)
+  cx = gaussLegendre(n, xa, xb)
+  cy = gaussLegendre(n, ya, yb)
   xygrid = expand.grid(x=cx$x, y=cy$x)
   wxygrid = expand.grid(x=cx$w, y=cy$w)
   
   tmp = log(wxygrid$x)+log(wxygrid$y)+logIntegrand(xygrid$x, xygrid$y, ...)
-  return(min(tmp)+log(sum(exp(tmp-min(tmp)))))
+  return(max(tmp)+log(sum(exp(tmp-max(tmp)))))
 }
