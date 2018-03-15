@@ -28,37 +28,25 @@ sampleLKJ <- function(n, p) {
 }
 
 # Bayesian Mosaic
-sampleKnot <- function(y, nb, ns, njump, proposal_var, inits, genIndividualLLik, verbose = FALSE, ...) {
+sampleKnot <- function(y, nb, ns, njump, inits, genIndividualLLik, verbose = FALSE, ...) {
   # TODO
-  
-  acr_target = 0.25 # target acceptance rate
-  acr_tol = 0.05 # tolerance for acceptance rate
-  dcf_pv = 0.9 # discount factor for adapting the proposal variance
-  dcf_multiplier = 0.9 # discount factor for adapting the multiplier
-  dcf_acr = 0.99 # discount factor for averaging the historical acceptance rate
-  ada_prop = 0.5 # the proportion of burn-ins for which adapting the proposal variance is based on
   
   # compress the counts
   compressed_y = compressCount(y)
+  
+  # construct a proposal distribution for independence MH
+  hull = constructHull(compressed_y, genIndividualLLik, mu_range=c(-10,0), 
+                s_range=c(0,5), n_grid=200, ...)
   
   # initialization
   mu = inits$mu
   s = inits$s
   prv_llik = -Inf
-  historical_acr = 1
+  ld_hull = 0
   
   # storing the results
   sample_s = NULL
   sample_mu = NULL
-  
-  # preparation for adapting
-  proposal_var_mu = proposal_var
-  window_memory_mu = rep(0, 100)
-  window_memory_mu[100] = mu
-  proposal_var_s = proposal_var
-  window_memory_s = rep(0, 100)
-  window_memory_s[100] = s
-  adaptive_multiplier = 1
   
   # sampling
   for (iter in 1:(nb + ns * njump)) {
@@ -68,23 +56,24 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, inits, genIndividualLLik,
     }
     
     # update mu & s
-    new_mu = mu + sqrt(proposal_var_mu) * rnorm(1)
-    new_s = s + sqrt(proposal_var_s) * rnorm(1)
-    if (new_s > 0) {
+    # independence MH
+    tmp = sampleHull(hull)
+    new_mu = tmp[1]
+    new_s = tmp[2]
+    new_ld_hull = tmp[3]
+    if (new_s > 0 & new_s < 10 & abs(new_mu) < 100) {
       new_llik = genLLik(compressed_y=compressed_y, 
                          genIndividualLLik=genIndividualLLik,
                          mu = new_mu, v = new_s, ...)
-      new_lpost = new_llik + dgamma(1 / new_s, shape = 2, rate = 2, log = TRUE)
-      prv_lpost = prv_llik + dgamma(1 / s, shape = 2, rate = 2, log = TRUE)
+      new_lpost = new_llik + ld_hull
+      prv_lpost = prv_llik + new_ld_hull
       acr = min(exp(new_lpost - prv_lpost), 1) # symmetric proposal
-      historical_acr = dcf_acr * historical_acr + (1 - dcf_acr) * acr
       if (runif(1) <= acr) {
         mu = new_mu
         s = new_s
         prv_llik = new_llik
+        ld_hull = new_ld_hull
       }
-    } else {
-      historical_acr = dcf_acr * historical_acr
     }
     
     # store samples
@@ -92,34 +81,10 @@ sampleKnot <- function(y, nb, ns, njump, proposal_var, inits, genIndividualLLik,
       sample_s = c(sample_s, s)
       sample_mu = c(sample_mu, mu)
     }
-    
-    # adapting proposal sd
-    if (iter<(nb*(1+ada_prop)/2) & iter>=(nb*(1-ada_prop)/2)) {
-      # mu and s
-      window_memory_mu[1:99] = window_memory_mu[2:100]
-      window_memory_mu[100] = mu
-      window_memory_s[1:99] = window_memory_s[2:100]
-      window_memory_s[100] = s
-      if (historical_acr > (acr_target + acr_tol)) {
-        # to shrink acr, make the multipler larger
-        adaptive_multiplier = dcf_multiplier * adaptive_multiplier + 
-          (1 - dcf_multiplier) * (adaptive_multiplier + 1)
-      }
-      if (historical_acr < (acr_target - acr_tol)) {
-        # to increase acr, make the multipler smaller
-        adaptive_multiplier = dcf_multiplier * adaptive_multiplier + 
-          (1 - dcf_multiplier) * max(adaptive_multiplier - 1, 1)
-      }
-      proposal_var_mu = dcf_pv * proposal_var_mu + 
-        (1 - dcf_pv) * adaptive_multiplier * var(window_memory_mu, na.rm = TRUE)
-      proposal_var_s = dcf_pv * proposal_var_s + 
-        (1 - dcf_pv) * adaptive_multiplier * var(window_memory_s, na.rm = TRUE)
-    }
   }
   
   return(list(sample_s = sample_s,
-              sample_mu = sample_mu,
-              historical_acr = historical_acr))
+              sample_mu = sample_mu))
 }
 
 sampleTile <- function(y, sample_mu, sample_s, model, verbose = FALSE, ...) {
@@ -145,7 +110,7 @@ sampleTile <- function(y, sample_mu, sample_s, model, verbose = FALSE, ...) {
   return(sample_rho)
 }
 
-bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model, 
+bayesianMosaic <- function(Y, nb, ns, njump, model, 
                            verbose=0, parallel=FALSE, ...) {
   # TODO
   
@@ -175,9 +140,9 @@ bayesianMosaic <- function(Y, nb, ns, njump, proposal_var, model,
   
   genSampleKnot <- function(k) {
     if (is.null(args$Ns)) {N=NULL} else {N=args$Ns[k]}
-    sampleKnot(y=Y[,k], nb=nb, ns=ns, njump=njump, proposal_var=proposal_var, 
+    sampleKnot(y=Y[,k], nb=nb, ns=ns, njump=njump,
                inits = list(mu=initial_mu[k], s=1),
-               genIndividualLik=genIndividualLik1D, verbose = verb, N=N)
+               genIndividualLLik=genIndividualLLik1D, verbose = verb, N=N)
   }
   if (parallel) {
     knots = mclapply(1:p, FUN=genSampleKnot, mc.cores=ncores)

@@ -6,16 +6,17 @@ rm(list = ls())
 
 # dependencies
 suppressMessages(require(coda))
-# source("~/Documents/yw_git/bayesian_mosaic/bayesian-mosiac.R")
-# source("~/Documents/yw_git/bayesian_mosaic/other-samplers.R")
-source("/home/collabor/yw104/BayesianMosaic/bayesian-mosiac.R")
-source("/home/collabor/yw104/BayesianMosaic/other-samplers.R")
+source("~/Documents/yw_git/bayesian_mosaic/bayesian-mosiac.R")
+source("~/Documents/yw_git/bayesian_mosaic/other-samplers.R")
+# source("/home/collabor/yw104/BayesianMosaic/bayesian-mosiac.R")
+# source("/home/collabor/yw104/BayesianMosaic/other-samplers.R")
 
 # helper
 experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns, 
-                           njump, parallel=FALSE) {
+                           njump, seednum, parallel=FALSE) {
   # TODO
   
+  set.seed(seednum)
   # 1. simulate dataset
   cat("Simulating data...\n")
   Sigma = diag(sqrt(diag)) %*% corr_mat %*% diag(sqrt(diag))
@@ -25,7 +26,7 @@ experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns,
   # 2. fit Bayesian mosaic
   cat("Bayesian Mosaic...\n")
   ct_bm = proc.time()
-  res = bayesianMosaic(Y, nb, ns, njump, proposal_var=0.01, model="mvtPoisson", 
+  res = bayesianMosaic(Y, nb, ns, njump, model="mvtPoisson", 
                        verbose=0, parallel=parallel)
   ct_bm = proc.time() - ct_bm
   
@@ -137,24 +138,27 @@ experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns,
 mu0 = -4
 diag0 = 0.5
 p = 3
-n_experiment = 100
+n_experiment = 2
 
 n = 10000
-nb = 50000
-ns = 500
-njump = 30
+nb = 10
+ns = 10
+njump = 1
 parallel = TRUE
 
 perfs = list()
 corr_mats = sampleLKJ(1000, p) # simulate a bag of correlation matrix
 corr_ids = sample(1:1000, n_experiment, replace=FALSE)
+set.seed(2018)
+seeds = sample(1:10000, n_experiment, replace=FALSE)
 for (iter in 1:n_experiment) {
   cat("experiment ", iter, "\n")
   corr_mat = corr_mats[corr_ids[iter],,]
   mu = mu0+runif(p)
   diag = diag0+0.5*runif(p)
+  seednum = seeds[iter]
   perfs[[iter]] = experimentOnce(n, p, mu, diag, corr_mat, nb, ns, 
-                                 njump, parallel=parallel)
+                                 njump, seednum, parallel=parallel)
 }
 
 # # sparse Poisson counts

@@ -273,7 +273,7 @@ sampleLaplaceApprox <- function(compressed_y, model, mu, vvars, ...) {
   llikGradient <- function(rho) {
     Sigma = diag(sqrt(vvars)) %*% matrix(c(1, rho, rho, 1), 2, 2) %*% diag(sqrt(vvars))
     upper_tri = chol(Sigma)
-    return(-genLLikGrad(compressed_y=compressed_y, genIndividualLik=genIndividualLLik2D, 
+    return(-genLLikGrad(compressed_y=compressed_y, genIndividualLLik=genIndividualLLik2D, 
                         genIndividualLikGrad=genIndividualLikGrad2D, mu=mu, 
                         v=vvars, upper_tri=upper_tri, rho=rho)-1/(1+rho)+1/(1-rho))
   }

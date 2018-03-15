@@ -189,3 +189,37 @@ quad2dLog <- function(logIntegrand, n, xa, xb, ya, yb, ...) {
   tmp = log(wxygrid$x)+log(wxygrid$y)+logIntegrand(xygrid$x, xygrid$y, ...)
   return(max(tmp)+log(sum(exp(tmp-max(tmp)))))
 }
+
+constructHull <- function(compressed_y, genIndividualLLik, mu_range, s_range, 
+                          n_grid, ...) {
+  # TODO
+  
+  mu_grid_len = (mu_range[2]-mu_range[1])/n_grid
+  s_grid_len = (s_range[2]-s_range[1])/n_grid
+  mu_grid = seq(from=mu_range[1]+mu_grid_len/2, to=mu_range[2]-mu_grid_len/2,
+                length.out=n_grid)
+  s_grid = seq(from=s_range[1]+s_grid_len/2, to=s_range[2]-s_grid_len/2,
+                length.out=n_grid)
+  final_grid = expand.grid(mu_grid=mu_grid, s_grid=s_grid)
+  lliks = NULL
+  for (i in 1:nrow(final_grid)) {
+    lliks = c(lliks, genLLik(compressed_y=compressed_y, 
+                               genIndividualLLik=genIndividualLLik,
+                               mu = final_grid[i,1], v = final_grid[i,2], ...))
+  }
+  log_sum_liks = max(lliks)+log(sum(exp(lliks-max(lliks))))
+  lliks = lliks-log_sum_liks
+  return(list(grid_values=cbind(final_grid, llik=lliks),
+              mu_grid_len=mu_grid_len,
+              s_grid_len=s_grid_len,
+              n_grid = n_grid^2))
+}
+
+sampleHull <- function(hull) {
+  # TODO
+  
+  grid_id = sample(1:hull$n_grid, 1, prob=exp(hull$grid_values[,3]))
+  return(c(hull$grid_values[grid_id,1]+(runif(1)-0.5)*hull$mu_grid_len/2,
+           hull$grid_values[grid_id,2]+(runif(1)-0.5)*hull$s_grid_len/2,
+           hull$grid_values[grid_id,3]))
+}
