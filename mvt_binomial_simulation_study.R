@@ -1,7 +1,7 @@
 # Bayesian Mosaic Simulation Study 2
 # Bivariate log-normal mixture of Binomial
-# Version 1.1
-# Last Updated on Dec 12, 2017
+# Version 1.2
+# Last Updated on April 6, 2018
 rm(list = ls())
 
 # dependencies

@@ -1,6 +1,6 @@
 # Bayesian Mosaic
-# Version 1.1
-# Last Updated on Jan 13, 2018
+# Version 1.2
+# Last Updated on April 6, 2018
 
 suppressMessages(require(rstan))
 source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")

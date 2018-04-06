@@ -1,6 +1,6 @@
 # Helper Functions for Samplers
-# Version 1.1
-# Last Updated on Jan 13, 2018
+# Version 1.2
+# Last Updated on April 6, 2018
 
 # dependencies
 source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")

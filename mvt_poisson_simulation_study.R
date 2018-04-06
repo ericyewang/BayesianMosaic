@@ -1,7 +1,7 @@
 # Bayesian Mosaic Simulation Study
 # Multivariate log-Gaussian mixture of Poisson
-# Version 1.1
-# Last Updated on Dec 19, 2017
+# Version 1.2
+# Last Updated on April 6, 2018
 rm(list = ls())
 
 # dependencies

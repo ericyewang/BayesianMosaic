@@ -1,6 +1,6 @@
 # Basic Helper Functions
-# Version 1.1
-# Last Updated on Jan 10, 2017
+# Version 1.2
+# Last Updated on April 6, 2018
 
 # dependencies
 suppressMessages(require(pracma))

@@ -1,7 +1,7 @@
 # Bayesian Mosaic Simulation Study
 # Rounded Gaussian
-# Version 1.1
-# Last Updated on Jan 14, 2018
+# Version 1.2
+# Last Updated on April 6, 2018
 rm(list = ls())
 
 # dependencies
