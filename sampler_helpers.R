@@ -1,10 +1,9 @@
 # Helper Functions for Samplers
 # Version 1.2
-# Last Updated on April 6, 2018
+# Last Updated on May 20, 2018
 
-# dependencies
-source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")
-# source("/home/collabor/yw104/BayesianMosaic/basic-helpers.R")
+# change the dir to yours
+source("~/Documents/yw_git/bayesian_mosaic/basic_helpers.R")
 suppressMessages(require(mvtnorm))
 suppressMessages(require(MCMCpack))
 suppressMessages(require(parallel))

@@ -1,10 +1,10 @@
 # Bayesian Mosaic
 # Version 1.2
-# Last Updated on April 6, 2018
+# Last Updated on May 20, 2018
 
+# change the dir to yours
+source("~/Documents/yw_git/bayesian_mosaic/sampler_helpers.R")
 suppressMessages(require(rstan))
-source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
-# source("/home/collabor/yw104/BayesianMosaic/sampler-helpers.R")
 
 # LKJ Sampler----
 code_lkj = '

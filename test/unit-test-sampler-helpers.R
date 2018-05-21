@@ -1,11 +1,11 @@
 # Test Helpers for Samplers
-# Version 1.1
-# Last Updated on Jan 10, 2018
+# Version 1.2
+# Last Updated on May 20, 2018
 
 rm(list = ls())
 
-# load helpers
-source("~/Documents/yw_git/bayesian_mosaic/sampler-helpers.R")
+# change the dir to yours
+source("~/Documents/yw_git/bayesian_mosaic/sampler_helpers.R")
 
 # test Poisson----
 # test genLLikPoissonLogNormal

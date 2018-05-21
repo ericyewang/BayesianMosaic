@@ -1,11 +1,14 @@
 # Bayesian Mosaic Simulation Study 2
 # Bivariate log-normal mixture of Binomial
 # Version 1.2
-# Last Updated on April 6, 2018
+# Last Updated on May 20, 2018
+
 rm(list = ls())
 
-# dependencies
-source("~/Documents/yw_git/bayesian_mosaic/helpers.R")
+# change the dir to yours
+source("~/Documents/yw_git/bayesian_mosaic/bayesian_mosiac.R")
+source("~/Documents/yw_git/bayesian_mosaic/other_samplers.R")
+suppressMessages(require(coda))
 
 # simulation
 # set.seed(2018)

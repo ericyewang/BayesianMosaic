@@ -1,12 +1,12 @@
 # Test Basic Helpers
-# Version 1.1
-# Last Updated on Jan 13, 2018
+# Version 1.2
+# Last Updated on May 20, 2018
 
 rm(list = ls())
 
-# load helpers
+# change the dir to yours
+source("~/Documents/yw_git/bayesian_mosaic/basic_helpers.R")
 suppressMessages(require(rbenchmark))
-source("~/Documents/yw_git/bayesian_mosaic/basic-helpers.R")
 
 # test compressCount
 if (!all(c(compressCount(c(rep(0,10), rep(1,2))))==c(10,0,2,1))) {

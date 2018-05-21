@@ -1,15 +1,14 @@
 # Bayesian Mosaic Simulation Study
 # Multivariate log-Gaussian mixture of Poisson
 # Version 1.2
-# Last Updated on April 6, 2018
+# Last Updated on May 20, 2018
+
 rm(list = ls())
 
-# dependencies
+# change the dir to yours
+source("~/Documents/yw_git/bayesian_mosaic/bayesian_mosiac.R")
+source("~/Documents/yw_git/bayesian_mosaic/other_samplers.R")
 suppressMessages(require(coda))
-source("~/Documents/yw_git/bayesian_mosaic/bayesian-mosiac.R")
-source("~/Documents/yw_git/bayesian_mosaic/other-samplers.R")
-# source("/home/collabor/yw104/BayesianMosaic/bayesian-mosiac.R")
-# source("/home/collabor/yw104/BayesianMosaic/other-samplers.R")
 
 # helper
 experimentOnce <- function(n, p, mu, diag, corr_mat, nb, ns, 
